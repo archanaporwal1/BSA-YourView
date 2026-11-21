@@ -2,26 +2,19 @@ name: Build BSA-YourView APK & Publish In-App Update
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - "v*"
+    branches: [ main, master ]
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Optional semantic version name (e.g. 1.1.0). Leave empty for 1.0.<run_number>."
+        description: "Release version tag (e.g., 1.0.2). Leave empty to use app/build.gradle.kts versionName."
         required: false
         default: ""
-      release_notes:
-        description: "Release notes shown inside the BSA-YourView in-app updater dialog"
-        required: false
-        default: "Updated BSA-YourView offline & online hybrid bank statement underwriting engine."
 
 permissions:
   contents: write
 
 jobs:
-  build-apk:
+  build-and-publish:
     name: Build & Publish BSA-YourView APK
     runs-on: ubuntu-latest
 
@@ -32,23 +25,32 @@ jobs:
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "21"
+          java-version: '21'
+          distribution: 'temurin'
 
-      - name: Set up Python 3
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Set up Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.3.1"
+
+      - name: Run CI Injector (Firebase Config & Version Info)
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -f ci_injector.py ]; then
+            python3 ci_injector.py
+          else
+            echo "ci_injector.py not found, skipping."
+          fi
 
       - name: Prepare debug & release signing keystores
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
+          # Ensure debug.keystore exists for debug builds or fallback tasks
           if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           elif [ ! -f debug.keystore ]; then
@@ -58,30 +60,28 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          # Priority 1: Use my-upload-key.jks uploaded directly in repo root (no Base64 secret needed)
+          # Priority 1: Use my-upload-key.jks uploaded directly in repo root
           if [ -f my-upload-key.jks ]; then
             echo "Found my-upload-key.jks in repository."
             echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
-          # Priority 2: Decode from KEYSTORE_BASE64 secret if configured
+          # Priority 2: Decode from KEYSTORE_BASE64 secret (ignoring invalid base64 exit code if copy-paste had extra chars)
           elif [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > my-upload-key.jks
-            echo "Decoded my-upload-key.jks from KEYSTORE_BASE64 secret."
-            echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
+            CLEAN_B64=$(printf '%s' "$KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=')
+            if printf '%s' "$CLEAN_B64" | base64 -d > my-upload-key.jks 2>/dev/null && [ -s my-upload-key.jks ]; then
+              echo "Decoded my-upload-key.jks from KEYSTORE_BASE64 secret."
+              echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
+            else
+              echo "ERROR: KEYSTORE_BASE64 could not be decoded. Check that the entire Base64 string was pasted cleanly."
+              rm -f my-upload-key.jks
+              exit 1
+            fi
           else
             echo "No release keystore found."
             echo "HAS_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Inject build version & GitHub update URLs via ci_injector.py
-        id: inject
-        env:
-          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
-        run: |
-          ARGS="--repo ${{ github.repository }}"
-          if [ -n "${{ github.event.inputs.version_name }}" ]; then
-            ARGS="$ARGS --version-name ${{ github.event.inputs.version_name }}"
-          fi
-          python3 ci_injector.py inject $ARGS
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
       - name: Build Android APK
         env:
@@ -92,58 +92,39 @@ jobs:
         run: |
           if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
             if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-              echo "::error::Release keystore found, but STORE_PASSWORD or KEY_PASSWORD secret is missing."
+              echo "Error: Release keystore found, but STORE_PASSWORD or KEY_PASSWORD secret is missing."
               exit 1
             fi
-            gradle :app:assembleRelease --no-daemon --stacktrace
-            APK_SRC="app/build/outputs/apk/release/app-release.apk"
+            echo "Building signed Release APK..."
+            ./gradlew assembleRelease --no-daemon --stacktrace
           else
-            echo "::warning::No my-upload-key.jks or KEYSTORE_BASE64 found. Falling back to debug build."
-            gradle :app:assembleDebug --no-daemon --stacktrace
-            APK_SRC="app/build/outputs/apk/debug/app-debug.apk"
+            echo "Warning: No my-upload-key.jks or KEYSTORE_BASE64 found. Falling back to debug build."
+            ./gradlew assembleDebug --no-daemon --stacktrace
           fi
-          if [ ! -f "$APK_SRC" ]; then
-            echo "::error::Expected APK not found at $APK_SRC"
+
+      - name: Locate built APK & extract metadata
+        id: apk_meta
+        run: |
+          APK_PATH=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK file found!"
             exit 1
           fi
-          mkdir -p dist
-          cp "$APK_SRC" "dist/${{ steps.inject.outputs.apk_filename }}"
-          echo "APK_PATH=dist/${{ steps.inject.outputs.apk_filename }}" >> "$GITHUB_ENV"
+          echo "Found APK: $APK_PATH"
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Generate SHA-256 update-manifest.json via ci_injector.py
-        run: |
-          NOTES="${{ github.event.inputs.release_notes }}"
-          if [ -z "$NOTES" ]; then
-            NOTES="BSA-YourView v${{ steps.inject.outputs.version_name }} (Build ${{ steps.inject.outputs.version_code }}) — Automatic GitHub CI release."
+          VERSION_NAME="${{ github.event.inputs.version_name }}"
+          if [ -z "$VERSION_NAME" ] && [ -f app/build.gradle.kts ]; then
+            VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           fi
-          python3 ci_injector.py manifest \
-            --apk "$APK_PATH" \
-            --version-code "${{ steps.inject.outputs.version_code }}" \
-            --version-name "${{ steps.inject.outputs.version_name }}" \
-            --tag "${{ steps.inject.outputs.tag_name }}" \
-            --repo "${{ github.repository }}" \
-            --apk-filename "${{ steps.inject.outputs.apk_filename }}" \
-            --release-notes "$NOTES" \
-            --output dist/update-manifest.json
+          VERSION_NAME="${VERSION_NAME:-1.0.0}"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK & update-manifest.json build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: BSA-YourView-${{ steps.inject.outputs.tag_name }}
-          path: |
-            dist/${{ steps.inject.outputs.apk_filename }}
-            dist/update-manifest.json
-
-      - name: Publish GitHub Release for In-App Auto-Updater
+      - name: Publish Release to GitHub
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.inject.outputs.tag_name }}
-          name: BSA-YourView ${{ steps.inject.outputs.tag_name }}
-          make_latest: true
-          body: |
-            ### BSA-YourView ${{ steps.inject.outputs.tag_name }} (Build ${{ steps.inject.outputs.version_code }})
-            - Brand: YourView (yourview.in) • Package: `in.bsa.yourview`
-            - Delivered automatically to existing users via the built-in **In-App Auto-Updater** (verified with SHA-256).
-          files: |
-            dist/${{ steps.inject.outputs.apk_filename }}
-            dist/update-manifest.json
+          tag_name: v${{ steps.apk_meta.outputs.version_name }}
+          name: BSA-YourView v${{ steps.apk_meta.outputs.version_name }}
+          files: ${{ steps.apk_meta.outputs.apk_path }}
+          draft: false
+          prerelease: false
