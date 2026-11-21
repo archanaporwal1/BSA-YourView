@@ -84,27 +84,32 @@ fun BrandTopHeader(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    YvBrandLogoBadge(size = 42.dp, cornerRadius = 11.dp)
-                    Column {
+                    YvBrandLogoBadge(size = 40.dp, cornerRadius = 10.dp)
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = stringResource(R.string.brand_title),
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
                             color = Color.White,
                             maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = stringResource(R.string.brand_subtitle),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
                             color = Color(0xFFBFDBFE),
                             maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -112,13 +117,13 @@ fun BrandTopHeader(
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (hasUpdateAvailable) {
                         IconButton(
                             onClick = onOpenUpdate,
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(44.dp)
                                 .testTag("header_update_badge")
                         ) {
                             Surface(
@@ -150,21 +155,24 @@ fun BrandTopHeader(
                         )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(7.dp)
+                                    .size(6.dp)
                                     .clip(CircleShape)
                                     .background(if (isOnlineBoostActive) Color(0xFF38BDF8) else Color(0xFF34D399))
                             )
                             Text(
-                                text = if (isOnlineBoostActive) "ONLINE BOOST" else "OFFLINE",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = if (isOnlineBoostActive) "ONLINE" else "OFFLINE",
+                                fontFamily = JetBrainsMono,
+                                fontSize = 10.sp,
                                 color = if (isOnlineBoostActive) Color(0xFFE0F2FE) else Color(0xFFD1FAE5),
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -173,7 +181,7 @@ fun BrandTopHeader(
                     IconButton(
                         onClick = onToggleTheme,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(44.dp)
                             .testTag("theme_mode_toggle")
                     ) {
                         Surface(
@@ -409,13 +417,16 @@ fun DateRangePickerRow(
         if (startDateIso != null || endDateIso != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Active exact range: ${BsaFormatters.formatIsoToDisplay(startDateIso) ?: "Beginning"} -> ${BsaFormatters.formatIsoToDisplay(endDateIso) ?: "Latest"}",
+                    text = "Active range: ${BsaFormatters.formatIsoToDisplay(startDateIso) ?: "Start"} -> ${BsaFormatters.formatIsoToDisplay(endDateIso) ?: "Latest"}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
                 TextButton(
                     onClick = onClearDates,
@@ -423,7 +434,11 @@ fun DateRangePickerRow(
                 ) {
                     Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.btn_clear_dates))
+                    Text(
+                        text = stringResource(R.string.btn_clear_dates),
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }
@@ -850,19 +865,22 @@ fun RiskScoreSummaryCard(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             text = "10-Point Risk Score",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = containerTint
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -870,13 +888,15 @@ fun RiskScoreSummaryCard(
                                     imageVector = tierIcon,
                                     contentDescription = null,
                                     tint = onContainerTint,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
                                 Text(
                                     text = summary.riskTier.label.uppercase(Locale.ROOT),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = onContainerTint
+                                    color = onContainerTint,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -888,9 +908,10 @@ fun RiskScoreSummaryCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    Row(
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         RiskCountChip(
                             label = "Fraud ${summary.fraudFlaggedCount}/5",

@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
@@ -271,37 +272,54 @@ private fun PdfUploadSection(
                 Text(
                     text = stringResource(R.string.upload_zone_title),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
                 )
                 Text(
                     text = stringResource(R.string.upload_zone_subtitle),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Spacer(Modifier.height(6.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     FilledTonalButton(
                         onClick = onPickPdfs,
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("attach_pdfs_button")
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("attach_pdfs_button"),
+                        shape = MaterialTheme.shapes.medium
                     ) {
                         Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.btn_add_pdfs))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.btn_add_pdfs),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     OutlinedButton(
                         onClick = onLoadSamplePdfs,
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("load_sample_pdfs_button")
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("load_sample_pdfs_button"),
+                        shape = MaterialTheme.shapes.medium
                     ) {
                         Icon(Icons.Filled.Description, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.btn_load_sample))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.btn_load_sample),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -411,65 +429,73 @@ private fun StagedPdfRowCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                when {
-                    isLocked -> {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Box(modifier = Modifier.weight(1f)) {
+                    when {
+                        isLocked -> {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.tertiaryContainer
                             ) {
-                                Icon(
-                                    Icons.Filled.Lock,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = "Password Required",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Lock,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "Password Required",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
-                    }
-                    isUnlocked -> {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        isUnlocked -> {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
                             ) {
-                                Icon(
-                                    Icons.Filled.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = "Unlocked in Memory",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.CheckCircle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "Unlocked",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
                             }
                         }
-                    }
-                    else -> {
-                        Text(
-                            text = "Unencrypted ePDF",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        else -> {
+                            Text(
+                                text = "Unencrypted ePDF",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 
@@ -483,7 +509,12 @@ private fun StagedPdfRowCard(
                     ) {
                         Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Enter Password", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            text = "Unlock PDF",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 } else {
                     TextButton(
@@ -492,7 +523,11 @@ private fun StagedPdfRowCard(
                     ) {
                         Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text(if (isUnlocked) "Change Password" else "Set Password")
+                        Text(
+                            text = if (isUnlocked) "Change Pass" else "Set Password",
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
@@ -646,33 +681,33 @@ private fun ApplicantFacilityFormSection(
                             )
                         }
 
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             OutlinedTextField(
                                 value = uiState.sanctionedLimitInput,
                                 onValueChange = onSanctionedLimitChange,
-                                label = { Text("Sanctioned ${uiState.config.facilityType.code} Limit *") },
+                                label = { Text("Sanctioned ${uiState.config.facilityType.code} Limit *", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 prefix = { Text("₹", fontFamily = JetBrainsMono) },
                                 singleLine = true,
                                 isError = uiState.odLimitError != null,
                                 supportingText = uiState.odLimitError?.let { err -> { Text(err) } },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .fillMaxWidth()
                                     .testTag("sanctioned_limit_input")
                             )
                             OutlinedTextField(
                                 value = uiState.drawingPowerInput,
                                 onValueChange = onDrawingPowerChange,
-                                label = { Text(stringResource(R.string.label_drawing_power)) },
+                                label = { Text(stringResource(R.string.label_drawing_power), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 prefix = { Text("₹", fontFamily = JetBrainsMono) },
                                 singleLine = true,
-                                supportingText = { Text("Defaults to OD limit") },
+                                supportingText = { Text("Optional — defaults to Sanctioned ${uiState.config.facilityType.code} Limit") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .fillMaxWidth()
                                     .testTag("drawing_power_input")
                             )
                         }

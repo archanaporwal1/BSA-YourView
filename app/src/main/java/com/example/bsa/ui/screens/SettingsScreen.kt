@@ -1,8 +1,10 @@
 package com.example.bsa.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -10,8 +12,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.bsa.model.AppSettings
@@ -80,18 +84,57 @@ fun SettingsScreen(
                             ThemeMode.LIGHT -> Icons.Filled.LightMode
                             ThemeMode.DARK -> Icons.Filled.DarkMode
                         }
-                        FilterChip(
-                            selected = selected,
-                            onClick = { onThemeModeChange(mode) },
-                            label = { Text(mode.label) },
-                            leadingIcon = {
-                                Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-                            },
+                        Surface(
                             modifier = Modifier
                                 .weight(1f)
-                                .minimumInteractiveComponentSize()
-                                .testTag("theme_mode_${mode.name.lowercase()}")
-                        )
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onThemeModeChange(mode) }
+                                .testTag("theme_mode_${mode.name.lowercase()}"),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            },
+                            border = BorderStroke(
+                                width = if (selected) 1.5.dp else 1.dp,
+                                color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (selected) {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = mode.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -148,7 +191,12 @@ fun SettingsScreen(
                 ) {
                     Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Configure Excel Columns & Date Format")
+                    Text(
+                        text = "Configure Excel Columns & Date",
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
@@ -157,12 +205,21 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    SectionHeading(
-                        icon = Icons.Filled.CloudSync,
-                        title = "Online Accuracy Boost"
-                    )
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Filled.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "Online Accuracy Boost",
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Surface(
                         shape = MaterialTheme.shapes.small,
                         color = if (isDeviceOnline) {
@@ -172,10 +229,12 @@ fun SettingsScreen(
                         }
                     ) {
                         Text(
-                            text = if (isDeviceOnline) "INTERNET READY" else "OFFLINE",
+                            text = if (isDeviceOnline) "ONLINE" else "OFFLINE",
                             fontFamily = JetBrainsMono,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
                             color = if (isDeviceOnline) {
                                 MaterialTheme.colorScheme.onSecondaryContainer
                             } else {
@@ -249,7 +308,12 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Update Available: v${updateState.release.versionName} — Download In-App")
+                            Text(
+                                text = "Download Update v${updateState.release.versionName}",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                     is AppUpdateUiState.ReadyToInstall -> {
@@ -265,7 +329,12 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Filled.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Install Downloaded Update v${updateState.release.versionName}")
+                            Text(
+                                text = "Install Update v${updateState.release.versionName}",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                     else -> {
@@ -280,11 +349,21 @@ fun SettingsScreen(
                             if (updateState is AppUpdateUiState.Checking) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Checking GitHub Releases...")
+                                Text(
+                                    text = "Checking GitHub Releases...",
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             } else {
                                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Check for In-App Updates")
+                                Text(
+                                    text = "Check for In-App Updates",
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -421,7 +500,12 @@ fun SettingsScreen(
                 ) {
                     Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Clear All Offline Saved Cases ($savedCaseCount)")
+                    Text(
+                        text = "Clear Saved Cases ($savedCaseCount)",
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
@@ -447,7 +531,7 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "Exclusively built for YourView (yourview.in). Runs a 100% standalone, offline deterministic Indian Bank Statement Analysis engine — zero cloud uploads, zero external APIs, zero API keys.",
+                    text = "Exclusively built for YourView (yourview.in). Runs a 100% offline deterministic Indian Bank Statement Analysis engine with optional Online Accuracy Boost & In-App Auto-Updater when connected.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

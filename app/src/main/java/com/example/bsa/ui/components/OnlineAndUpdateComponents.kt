@@ -50,7 +50,7 @@ fun OnlineEnrichmentSummaryCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -63,10 +63,12 @@ fun OnlineEnrichmentSummaryCard(
                     tint = accent,
                     modifier = Modifier.size(20.dp)
                 )
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Processing Accuracy Engine",
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = enrichment.modeLabel,
@@ -79,10 +81,12 @@ fun OnlineEnrichmentSummaryCard(
             }
             Surface(shape = RoundedCornerShape(16.dp), color = badgeBg) {
                 Text(
-                    text = if (active) "HYBRID BOOST" else "LOCAL ONLY",
+                    text = if (active) "HYBRID" else "OFFLINE",
                     fontFamily = JetBrainsMono,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
                     color = badgeFg,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
@@ -103,7 +107,7 @@ fun OnlineEnrichmentSummaryCard(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -111,13 +115,18 @@ fun OnlineEnrichmentSummaryCard(
                             fontFamily = JetBrainsMono,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                         if (info.micr.isNotBlank()) {
                             Text(
                                 text = "MICR ${info.micr}",
                                 fontFamily = JetBrainsMono,
                                 fontSize = 10.5.sp,
+                                maxLines = 1,
+                                softWrap = false,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -197,13 +206,20 @@ private fun MiniStatPill(label: String, value: String, modifier: Modifier = Modi
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     ) {
         Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Text(
                 text = value,
                 fontFamily = JetBrainsMono,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1
             )
         }
     }

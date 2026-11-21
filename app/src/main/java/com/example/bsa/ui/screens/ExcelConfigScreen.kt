@@ -323,23 +323,47 @@ fun ExcelConfigScreen(
                 ) {
                     TOP_LIMIT_OPTIONS.forEach { limit ->
                         val selected = config.topTransactionsLimit == limit
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                onConfigChange { it.copy(topTransactionsLimit = limit) }
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    onConfigChange { it.copy(topTransactionsLimit = limit) }
+                                }
+                                .testTag("excel_top_limit_$limit"),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                             },
-                            label = {
+                            border = BorderStroke(
+                                width = if (selected) 1.5.dp else 1.dp,
+                                color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
                                     text = "Top $limit",
                                     fontFamily = JetBrainsMono,
-                                    fontSize = 12.sp
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .minimumInteractiveComponentSize()
-                                .testTag("excel_top_limit_$limit")
-                        )
+                            }
+                        }
                     }
                 }
             }
@@ -446,9 +470,10 @@ private fun SpreadsheetLivePreviewCard(
                     .background(SovereignNavy)
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -459,10 +484,12 @@ private fun SpreadsheetLivePreviewCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Live Preview • Tab 5: Transactions",
+                        text = "Live Preview • Tab 5",
                         style = MaterialTheme.typography.labelLarge,
                         color = Color.White,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -644,9 +671,10 @@ private fun DateFormatOptionRow(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -654,13 +682,15 @@ private fun DateFormatOptionRow(
                     selected = selected,
                     onClick = null
                 )
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = format.pattern,
                         fontFamily = JetBrainsMono,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = when (format) {
@@ -671,7 +701,9 @@ private fun DateFormatOptionRow(
                             ExcelDateFormat.MM_DD_YYYY -> "US Month-First Slash Format"
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -688,6 +720,8 @@ private fun DateFormatOptionRow(
                     fontFamily = JetBrainsMono,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
                     color = if (selected) {
                         MaterialTheme.colorScheme.onPrimary
                     } else {
@@ -709,14 +743,20 @@ private fun ConfigSectionTitle(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
         Surface(
             shape = RoundedCornerShape(12.dp),
@@ -727,6 +767,8 @@ private fun ConfigSectionTitle(
                 fontFamily = JetBrainsMono,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
             )

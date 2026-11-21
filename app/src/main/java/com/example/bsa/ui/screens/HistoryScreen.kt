@@ -83,7 +83,7 @@ fun HistoryScreen(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(

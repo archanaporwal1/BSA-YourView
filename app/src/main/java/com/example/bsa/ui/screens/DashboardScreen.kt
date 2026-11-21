@@ -154,6 +154,7 @@ fun DashboardScreen(
                     Button(
                         onClick = onExportExcel,
                         enabled = !uiState.isExporting,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
@@ -168,19 +169,25 @@ fun DashboardScreen(
                         Text(
                             text = if (uiState.isExporting) "Building .xlsx..." else stringResource(R.string.btn_export_excel),
                             maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                     OutlinedButton(
                         onClick = onShareExcel,
                         enabled = !uiState.isExporting,
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                         modifier = Modifier
                             .height(48.dp)
                             .testTag("share_excel_button")
                     ) {
                         Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.btn_share_excel))
+                        Text(
+                            text = stringResource(R.string.btn_share_excel),
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
 
@@ -518,7 +525,7 @@ private fun ForensicAuditAccordionCard(report: AnalysisReport) {
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
@@ -578,12 +585,15 @@ private fun MonthlyCashFlowChartCard(report: AnalysisReport) {
     LedgerCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Monthly Inflow vs Outflow Trend",
-                style = MaterialTheme.typography.titleMedium
+                text = "Monthly Inflow vs Outflow",
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 LegendDot("Credits", creditColor)
@@ -678,15 +688,22 @@ private fun MonthlyDetailCard(month: MonthlyMetric, isOdFacility: Boolean) {
         }
         Spacer(Modifier.height(10.dp))
 
-        // Key checkpoint balances (2nd, 10th, 20th, Month End)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            MiniCheckpoint("Bal 2nd", month.balAsOn2nd, Modifier.weight(1f))
-            MiniCheckpoint("Bal 10th", month.balAsOn10th, Modifier.weight(1f))
-            MiniCheckpoint("Bal 20th", month.balAsOn20th, Modifier.weight(1f))
-            MiniCheckpoint("Month End", month.balAsOnMonthEnd, Modifier.weight(1f))
+        // Key checkpoint balances (2x2 grid prevents narrow-screen squeezing)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MiniCheckpoint("Bal as on 2nd", month.balAsOn2nd, Modifier.weight(1f))
+                MiniCheckpoint("Bal as on 10th", month.balAsOn10th, Modifier.weight(1f))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MiniCheckpoint("Bal as on 20th", month.balAsOn20th, Modifier.weight(1f))
+                MiniCheckpoint("Month End Bal", month.balAsOnMonthEnd, Modifier.weight(1f))
+            }
         }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
@@ -779,7 +796,7 @@ private fun FraudIndicatorCard(ind: FraudIndicatorResult) {
                 .fillMaxWidth()
                 .clickable(enabled = ind.evidence.isNotEmpty()) { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
@@ -866,34 +883,38 @@ private fun TransactionRowCard(txn: BankTransaction) {
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (txn.isSelfTransfer) {
-                        MaterialTheme.colorScheme.tertiaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-                    }
-                ) {
-                    Text(
-                        text = txn.category,
-                        style = MaterialTheme.typography.labelSmall,
+                Box(modifier = Modifier.weight(1f)) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
                         color = if (txn.isSelfTransfer) {
-                            MaterialTheme.colorScheme.onTertiaryContainer
+                            MaterialTheme.colorScheme.tertiaryContainer
                         } else {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        },
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+                        }
+                    ) {
+                        Text(
+                            text = txn.category,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (txn.isSelfTransfer) {
+                                MaterialTheme.colorScheme.onTertiaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            },
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 Text(
                     text = "Bal: ${BsaFormatters.formatInr(txn.balance)}",
                     fontFamily = JetBrainsMono,
                     fontSize = 11.5.sp,
+                    maxLines = 1,
+                    softWrap = false,
                     color = if (txn.hasBalanceMismatch) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
