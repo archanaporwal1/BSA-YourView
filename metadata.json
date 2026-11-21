@@ -1,0 +1,6 @@
+{
+  "name": "BSA-YourView",
+  "description": "BSA-YourView by YourView (yourview.in) — Standalone offline bank statement forensic gatekeeper, PDFBox table parser, OD/CC underwriting engine, 10-point fraud screener, and 11-tab Excel exporter.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

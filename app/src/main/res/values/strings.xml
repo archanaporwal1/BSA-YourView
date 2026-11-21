@@ -1,0 +1,54 @@
+<resources>
+    <string name="app_name">BSA-YourView</string>
+    <string name="brand_title">BSA-YourView</string>
+    <string name="brand_subtitle">YourView • yourview.in</string>
+    <string name="brand_tagline">100% Offline Deterministic Statement Underwriting</string>
+
+    <string name="nav_analyze">Analyze</string>
+    <string name="nav_report">Report</string>
+    <string name="nav_history">Cases</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="upload_zone_title">Select Bank Statement ePDFs</string>
+    <string name="upload_zone_subtitle">Tap to attach one or multiple sequential ePDF statements (password-protected auto-prompted)</string>
+    <string name="btn_add_pdfs">Attach ePDFs</string>
+    <string name="btn_load_sample">Load Sample ePDFs</string>
+    <string name="btn_run_analysis">Run Forensic Analysis</string>
+    <string name="btn_export_excel">Export 11-Tab Excel (.xlsx)</string>
+    <string name="btn_share_excel">Share .xlsx</string>
+
+    <string name="section_applicant_facility">Applicant &amp; Facility Parameters</string>
+    <string name="label_applicant_id">Applicant ID</string>
+    <string name="label_source_name">Source Name</string>
+    <string name="label_product_type">Product Type</string>
+    <string name="label_facility_type">Facility Type</string>
+    <string name="label_sanctioned_od">Sanctioned OD Limit (INR) *</string>
+    <string name="label_drawing_power">Drawing Power (Optional)</string>
+
+    <string name="section_date_range">Exact Date Range Filter</string>
+    <string name="label_from_date">From Date</string>
+    <string name="label_to_date">To Date</string>
+    <string name="btn_clear_dates">All Dates</string>
+
+    <string name="password_dialog_title">Password-Protected PDF</string>
+    <string name="password_dialog_unlock">Unlock PDF</string>
+    <string name="password_dialog_cancel">Cancel</string>
+
+    <string name="empty_report_title">No Active Underwriting Report</string>
+    <string name="empty_report_body">Attach one or more Indian bank ePDFs in the Analyze tab or load sample ePDFs to generate a forensic audit and 11-tab Excel workbook.</string>
+    <string name="empty_history_title">No Saved Cases Yet</string>
+    <string name="empty_history_body">Completed bank statement analyses are stored strictly offline on this device for instant review and Excel re-export.</string>
+
+    <string name="cd_remove_file">Remove PDF file</string>
+    <string name="cd_toggle_password">Toggle password visibility</string>
+    <string name="cd_delete_case">Delete saved case</string>
+    <string name="cd_brand_logo">BSA-YourView emblem</string>
+    <string name="cd_toggle_theme">Toggle dark or light theme</string>
+    <string name="cd_back">Navigate back</string>
+
+    <string name="excel_config_title">Excel Output Configuration</string>
+    <string name="excel_config_subtitle">Customize columns, date formats &amp; formulas for your 11-tab .xlsx</string>
+    <string name="btn_customize_excel">Customize Columns &amp; Date Format</string>
+    <string name="btn_export_customized_excel">Export Customized 11-Tab Excel (.xlsx)</string>
+    <string name="btn_reset_defaults">Reset</string>
+</resources>
