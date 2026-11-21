@@ -45,7 +45,7 @@ jobs:
         with:
           gradle-version: "9.3.1"
 
-      - name: Decode debug/release signing keystores
+      - name: Prepare debug & release signing keystores
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
@@ -57,10 +57,18 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
-          if [ -n "$KEYSTORE_BASE64" ]; then
+
+          # Priority 1: Use my-upload-key.jks uploaded directly in repo root (no Base64 secret needed)
+          if [ -f my-upload-key.jks ]; then
+            echo "Found my-upload-key.jks in repository."
+            echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
+          # Priority 2: Decode from KEYSTORE_BASE64 secret if configured
+          elif [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > my-upload-key.jks
+            echo "Decoded my-upload-key.jks from KEYSTORE_BASE64 secret."
             echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
           else
+            echo "No release keystore found."
             echo "HAS_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
           fi
 
@@ -84,13 +92,13 @@ jobs:
         run: |
           if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
             if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-              echo "::error::KEYSTORE_BASE64 is set, but STORE_PASSWORD or KEY_PASSWORD secret is missing."
+              echo "::error::Release keystore found, but STORE_PASSWORD or KEY_PASSWORD secret is missing."
               exit 1
             fi
             gradle :app:assembleRelease --no-daemon --stacktrace
             APK_SRC="app/build/outputs/apk/release/app-release.apk"
           else
-            echo "::warning::KEYSTORE_BASE64 not found. Falling back to debug build."
+            echo "::warning::No my-upload-key.jks or KEYSTORE_BASE64 found. Falling back to debug build."
             gradle :app:assembleDebug --no-daemon --stacktrace
             APK_SRC="app/build/outputs/apk/debug/app-debug.apk"
           fi
