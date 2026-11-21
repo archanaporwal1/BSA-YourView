@@ -1,0 +1,54 @@
+name: Show Base64 Key in Logs & Summary
+
+on:
+  workflow_dispatch:
+
+jobs:
+  print-base64:
+    name: Generate & Print Base64 Key
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate my-upload-key.jks & Print Base64
+        env:
+          STORE_PASS: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+          ALIAS_NAME: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -z "$STORE_PASS" ] || [ -z "$KEY_PASS" ]; then
+            echo "ERROR: Set STORE_PASSWORD and KEY_PASSWORD in Repository Secrets first."
+            exit 1
+          fi
+          ALIAS="${ALIAS_NAME:-upload}"
+
+          keytool -genkeypair -v \
+            -keystore my-upload-key.jks \
+            -storetype JKS \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -alias "$ALIAS" \
+            -storepass "$STORE_PASS" \
+            -keypass "$KEY_PASS" \
+            -dname "CN=YourView, OU=Engineering, O=BSA-YourView, L=Hyderabad, ST=Telangana, C=IN"
+
+          B64=$(base64 -w 0 my-upload-key.jks)
+
+          echo ""
+          echo "==================== COPY BELOW THIS LINE ===================="
+          echo "$B64"
+          echo "==================== COPY ABOVE THIS LINE ===================="
+          echo ""
+
+          {
+            echo "### Copy KEYSTORE_BASE64 (tap the copy icon at top-right of box)"
+            echo "\`\`\`text"
+            echo "$B64"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload my-upload-key.jks backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-upload-key-backup
+          path: my-upload-key.jks
