@@ -36,9 +36,10 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run CI Injector (Firebase Config & Version Info)
+      - name: Run CI Injector (Firebase, Keystore & Version Info)
         env:
           GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -f ci_injector.py ]; then
             python3 ci_injector.py
@@ -49,6 +50,9 @@ jobs:
       - name: Prepare debug & release signing keystores
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           # Ensure debug.keystore exists for debug builds or fallback tasks
           if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
@@ -60,23 +64,19 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          # Priority 1: Use my-upload-key.jks uploaded directly in repo root
-          if [ -f my-upload-key.jks ]; then
-            echo "Found my-upload-key.jks in repository."
-            echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
-          # Priority 2: Decode from KEYSTORE_BASE64 secret (ignoring invalid base64 exit code if copy-paste had extra chars)
-          elif [ -n "$KEYSTORE_BASE64" ]; then
-            CLEAN_B64=$(printf '%s' "$KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=')
-            if printf '%s' "$CLEAN_B64" | base64 -d > my-upload-key.jks 2>/dev/null && [ -s my-upload-key.jks ]; then
-              echo "Decoded my-upload-key.jks from KEYSTORE_BASE64 secret."
+          # Check if my-upload-key.jks was decoded by ci_injector.py or exists in repo
+          if [ -s my-upload-key.jks ]; then
+            ALIAS="${KEY_ALIAS:-upload}"
+            if [ -n "$STORE_PASSWORD" ] && keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias "$ALIAS" >/dev/null 2>&1; then
+              echo "Verified valid release keystore (alias: $ALIAS)."
               echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
             else
-              echo "ERROR: KEYSTORE_BASE64 could not be decoded. Check that the entire Base64 string was pasted cleanly."
+              echo "Warning: my-upload-key.jks could not be opened with STORE_PASSWORD / alias '$ALIAS'. Falling back to debug build."
               rm -f my-upload-key.jks
-              exit 1
+              echo "HAS_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
             fi
           else
-            echo "No release keystore found."
+            echo "No valid release keystore found. Falling back to debug build."
             echo "HAS_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
           fi
 
@@ -91,14 +91,10 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
-            if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-              echo "Error: Release keystore found, but STORE_PASSWORD or KEY_PASSWORD secret is missing."
-              exit 1
-            fi
             echo "Building signed Release APK..."
             ./gradlew assembleRelease --no-daemon --stacktrace
           else
-            echo "Warning: No my-upload-key.jks or KEYSTORE_BASE64 found. Falling back to debug build."
+            echo "Building Debug APK..."
             ./gradlew assembleDebug --no-daemon --stacktrace
           fi
 
