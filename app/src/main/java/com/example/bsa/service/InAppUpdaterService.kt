@@ -43,7 +43,9 @@ sealed interface UpdateCheckOutcome {
  *   via FileProvider (`application/vnd.android.package-archive`).
  */
 class InAppUpdaterService(
-    private val httpFetcher: HttpTextFetcher = DefaultHttpTextFetcher
+    private val httpFetcher: HttpTextFetcher = DefaultHttpTextFetcher,
+    private val defaultRepo: String = BuildConfig.GITHUB_UPDATE_REPO,
+    private val defaultManifestUrl: String = BuildConfig.UPDATE_MANIFEST_URL
 ) {
 
     fun resolveEffectiveRepo(repoOverride: String): String {
@@ -51,7 +53,7 @@ class InAppUpdaterService(
             .removePrefix("https://github.com/")
             .removePrefix("http://github.com/")
             .trim('/')
-            .ifBlank { BuildConfig.GITHUB_UPDATE_REPO.trim() }
+            .ifBlank { defaultRepo.trim() }
     }
 
     fun resolveManifestUrl(repoOverride: String): String {
@@ -59,7 +61,7 @@ class InAppUpdaterService(
         if (repo.contains("/")) {
             return "https://github.com/$repo/releases/latest/download/update-manifest.json"
         }
-        return BuildConfig.UPDATE_MANIFEST_URL.trim()
+        return defaultManifestUrl.trim()
     }
 
     suspend fun checkForUpdate(

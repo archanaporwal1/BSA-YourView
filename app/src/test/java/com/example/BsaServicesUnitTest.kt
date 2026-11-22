@@ -492,10 +492,12 @@ class BsaServicesUnitTest {
         val updater = com.example.bsa.service.InAppUpdaterService(
             httpFetcher = com.example.bsa.service.HttpTextFetcher { url ->
                 if (url.endsWith("update-manifest.json")) manifestJson else null
-            }
+            },
+            defaultRepo = "",
+            defaultManifestUrl = ""
         )
 
-        // Not configured when repo override & BuildConfig are empty
+        // Not configured when repo override & default BuildConfig repo/manifest are empty
         val unconfigured = updater.checkForUpdate(repoOverride = "", currentVersionCode = 1, currentVersionName = "1.0.0")
         assertTrue(unconfigured is com.example.bsa.service.UpdateCheckOutcome.NotConfigured)
 
