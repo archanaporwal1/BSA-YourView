@@ -463,7 +463,26 @@ def configure_ci_signing_keystores(dry_run: bool = False) -> Dict[str, str]:
             if peek_aliases:
                 peek_note = f" Public JKS header shows alias(es) {peek_aliases}, cert SHA-256: {peek_fp or 'N/A'}."
 
-            if not set_store_envs and not set_key_envs:
+            is_corrupt_binary = any(
+                tok in last_keytool_err
+                for tok in (
+                    "UTFDataFormatException",
+                    "EOFException",
+                    "Unrecognized keystore",
+                    "Invalid keystore format",
+                    "DerInputStream",
+                )
+            )
+
+            if is_corrupt_binary:
+                action_hint = (
+                    f"{secret_label} itself is CORRUPTED (missing/altered characters or broken copy-paste) — "
+                    "this is NOT a password error (`keytool` failed while parsing the JKS file header before checking your password). "
+                    "Re-encode your original .jks file to a single-line base64 string (Linux/macOS/Termux: `base64 -w 0 your.jks` or "
+                    "Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes('your.jks')) | Set-Clipboard`) "
+                    f"and update GitHub Secret {secret_label}."
+                )
+            elif not set_store_envs and not set_key_envs:
                 action_hint = (
                     "No STORE_PASSWORD or KEY_PASSWORD secret was set in GitHub Actions! "
                     "Go to GitHub Repo -> Settings -> Secrets and variables -> Actions and add "
