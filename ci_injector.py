@@ -55,42 +55,136 @@ def _detect_keystore_format(raw: bytes) -> str:
     return f"UNKNOWN(magic={raw[:4].hex() if raw else 'empty'})"
 
 
-def _decode_base64_bytes(b64_value: str) -> bytes:
+def _decode_base64_bytes(b64_value: str) -> Tuple[bytes, Dict[str, int]]:
     """
-    Decodes standard or URL-safe base64, safely stripping:
-    - Windows `certutil -encode` / PEM armor lines (`-----BEGIN ...-----`, `-----END ...-----`)
-    - Data URI prefixes (`data:...;base64,`)
-    - Surrounding quotes and whitespace/newlines
+    Decodes standard or URL-safe base64 cleanly, returning (raw_bytes, stats):
+    1. Strips surrounding quotes, data URI prefixes (`data:...;base64,`), and
+       Windows `certutil` / PEM armor lines (`-----BEGIN ...-----`, `-----END ...-----`).
+    2. Tries strict RFC4648 decoding first (whitespace stripped only — zero character mutation).
+    3. Only applies URL-safe (`-` -> `+`, `_` -> `/`) when `+` and `/` are absent.
+    4. Tracks how many non-base64 characters (if any) were stripped for clear diagnostics.
     """
+    stats = {"rawChars": len(b64_value or ""), "lines": 0, "strippedNonB64": 0}
     text = (b64_value or "").strip()
     if not text:
-        return b""
+        return (b"", stats)
+
     # Strip surrounding quotes if pasted with quotes
     if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
         text = text[1:-1].strip()
     # Strip data:...;base64, prefix if present
     text = re.sub(r"(?is)^data:[^;,]+;base64,", "", text)
-    # Strip Windows certutil / PEM header & footer lines (e.g. -----BEGIN CERTIFICATE-----)
+    # Strip Windows certutil / PEM armor lines and CertUtil status footer
     lines = [
         ln.strip()
         for ln in text.splitlines()
-        if ln.strip() and not re.match(r"^-{3,}\s*(BEGIN|END)\b.*-{3,}$", ln.strip(), re.IGNORECASE)
+        if ln.strip()
+        and not re.match(r"^-{3,}\s*(BEGIN|END)\b.*-{3,}$", ln.strip(), re.IGNORECASE)
+        and not ln.strip().lower().startswith("certutil:")
     ]
-    joined = "".join(lines)
-    # Handle URL-safe base64 alphabet
-    normalized = joined.replace("-", "+").replace("_", "/")
+    stats["lines"] = len(lines)
+    joined = re.sub(r"\s+", "", "".join(lines))
+    if not joined:
+        return (b"", stats)
+
+    # Try strict standard base64 first (no character mutation)
+    try:
+        padded = joined + ("=" * ((4 - len(joined) % 4) % 4))
+        return (base64.b64decode(padded, validate=True), stats)
+    except Exception:
+        pass
+
+    # Only treat as URL-safe base64 if '-'/'_' appear AND '+'/'/' do NOT appear
+    normalized = joined
+    if ("-" in joined or "_" in joined) and ("+" not in joined and "/" not in joined):
+        normalized = joined.replace("-", "+").replace("_", "/")
+
     cleaned = re.sub(r"[^A-Za-z0-9+/=]", "", normalized)
+    stats["strippedNonB64"] = len(normalized) - len(cleaned)
     if not cleaned:
-        return b""
+        return (b"", stats)
     rem = len(cleaned) % 4
     if rem:
         cleaned += "=" * (4 - rem)
-    return base64.b64decode(cleaned)
+    return (base64.b64decode(cleaned), stats)
+
+
+def _inspect_jks_structure(raw: bytes) -> str:
+    """
+    Parses ONLY the public JKS binary framing fields (magic, version, entry count, entry tag,
+    alias length/validity, encrypted key blob length, cert count, certType preview) to pinpoint
+    the exact offset of any structural corruption without ever exposing key material or passwords.
+    """
+    import struct
+    if len(raw) < 18:
+        return f"truncated JKS ({len(raw)} bytes < 18-byte header)"
+    magic, version, count = struct.unpack(">III", raw[:12])
+    parts = [f"version={version}", f"entries={count}"]
+    if magic != 0xFEEDFEED:
+        return f"not JKS (magic=0x{magic:08x})"
+    if version not in (1, 2) or count <= 0 or count > 100:
+        return f"corrupt header ({', '.join(parts)})"
+
+    pos = 12
+    tag = struct.unpack(">I", raw[pos:pos + 4])[0]
+    pos += 4
+    parts.append(f"tag={tag}")
+    if tag not in (1, 2):
+        return f"corrupt entry tag ({', '.join(parts)}, offset={pos - 4})"
+
+    alias_len = struct.unpack(">H", raw[pos:pos + 2])[0]
+    pos += 2
+    parts.append(f"aliasLen={alias_len}")
+    if pos + alias_len > len(raw):
+        return f"aliasLen exceeds EOF ({', '.join(parts)}, fileLen={len(raw)})"
+
+    alias_raw = raw[pos:pos + alias_len]
+    pos += alias_len
+    try:
+        alias_str = alias_raw.decode("utf-8")
+        parts.append(f"alias='{alias_str}'")
+    except UnicodeDecodeError as exc:
+        return (
+            f"CORRUPT ALIAS UTF-8 at alias byte {exc.start} (file offset {18 + exc.start}): "
+            f"{', '.join(parts)}, aliasHex={alias_raw[:16].hex()}"
+        )
+
+    if pos + 8 + 4 > len(raw):
+        return f"truncated after alias ({', '.join(parts)}, offset={pos}, fileLen={len(raw)})"
+    pos += 8  # timestamp
+    key_len = struct.unpack(">I", raw[pos:pos + 4])[0]
+    pos += 4
+    parts.append(f"keyBlobLen={key_len}")
+    if pos + key_len + 4 > len(raw):
+        return f"keyBlobLen out of bounds ({', '.join(parts)}, offset={pos}, fileLen={len(raw)})"
+    pos += key_len
+
+    cert_count = struct.unpack(">I", raw[pos:pos + 4])[0]
+    pos += 4
+    parts.append(f"certs={cert_count}")
+    if version == 2 and cert_count > 0:
+        if pos + 2 > len(raw):
+            return f"truncated at certType ({', '.join(parts)}, offset={pos})"
+        ct_len = struct.unpack(">H", raw[pos:pos + 2])[0]
+        pos += 2
+        parts.append(f"certTypeLen={ct_len}")
+        if pos + ct_len > len(raw):
+            return f"certTypeLen out of bounds ({', '.join(parts)}, offset={pos}, fileLen={len(raw)})"
+        ct_raw = raw[pos:pos + ct_len]
+        try:
+            ct_str = ct_raw.decode("utf-8")
+            parts.append(f"certType='{ct_str}'")
+        except UnicodeDecodeError as exc:
+            return (
+                f"CORRUPT certType UTF-8 at byte {exc.start} (file offset {pos + exc.start}, expected 'X.509'): "
+                f"{', '.join(parts)}, certTypeHex={ct_raw[:12].hex()}"
+            )
+    return ", ".join(parts)
 
 
 def decode_base64_to_file(b64_value: str, out_path: str, label: str, unwrap_double_b64: bool = False) -> bool:
     try:
-        raw = _decode_base64_bytes(b64_value)
+        raw, stats = _decode_base64_bytes(b64_value)
         if not raw:
             return False
 
@@ -98,7 +192,7 @@ def decode_base64_to_file(b64_value: str, out_path: str, label: str, unwrap_doub
         if unwrap_double_b64 and _detect_keystore_format(raw).startswith("UNKNOWN"):
             try:
                 as_text = raw.decode("ascii")
-                inner = _decode_base64_bytes(as_text)
+                inner, _ = _decode_base64_bytes(as_text)
                 inner_fmt = _detect_keystore_format(inner)
                 if inner_fmt in ("JKS", "PKCS12"):
                     print(
@@ -115,7 +209,8 @@ def decode_base64_to_file(b64_value: str, out_path: str, label: str, unwrap_doub
         with open(out_path, "wb") as f:
             f.write(raw)
         fmt_note = f", format={_detect_keystore_format(raw)}" if unwrap_double_b64 else ""
-        print(f"[ci_injector] Wrote {out_path} ({len(raw)} bytes{fmt_note}) from {label}.")
+        strip_note = f", strippedNonB64={stats['strippedNonB64']}" if stats.get("strippedNonB64") else ""
+        print(f"[ci_injector] Wrote {out_path} ({len(raw)} bytes{fmt_note}{strip_note}) from {label}.")
         return True
     except Exception as exc:
         print(f"[ci_injector] Warning: Failed to decode {label}: {exc}")
@@ -462,6 +557,7 @@ def configure_ci_signing_keystores(dry_run: bool = False) -> Dict[str, str]:
             peek_note = ""
             if peek_aliases:
                 peek_note = f" Public JKS header shows alias(es) {peek_aliases}, cert SHA-256: {peek_fp or 'N/A'}."
+            jks_struct = f" JKS structure: [{_inspect_jks_structure(raw_bytes)}]." if ks_format == "JKS" else ""
 
             is_corrupt_binary = any(
                 tok in last_keytool_err
@@ -477,9 +573,10 @@ def configure_ci_signing_keystores(dry_run: bool = False) -> Dict[str, str]:
             if is_corrupt_binary:
                 action_hint = (
                     f"{secret_label} itself is CORRUPTED (missing/altered characters or broken copy-paste) — "
-                    "this is NOT a password error (`keytool` failed while parsing the JKS file header before checking your password). "
-                    "Re-encode your original .jks file to a single-line base64 string (Linux/macOS/Termux: `base64 -w 0 your.jks` or "
-                    "Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes('your.jks')) | Set-Clipboard`) "
+                    "this is NOT a password error (`keytool` failed while parsing the JKS binary structure before checking your password). "
+                    "Verify the local .jks file first with `keytool -list -v -keystore your.jks`, then re-encode it cleanly "
+                    "(Linux/macOS/Termux: `base64 -w 0 your.jks > ks.b64` or Windows PowerShell: "
+                    "`[Convert]::ToBase64String([IO.File]::ReadAllBytes('your.jks')) | Set-Clipboard`) "
                     f"and update GitHub Secret {secret_label}."
                 )
             elif not set_store_envs and not set_key_envs:
@@ -496,7 +593,7 @@ def configure_ci_signing_keystores(dry_run: bool = False) -> Dict[str, str]:
                 )
 
             raise RuntimeError(
-                f"{secret_label} decoded to {len(raw_bytes)} bytes ({ks_format}), but could not be opened.{peek_note} "
+                f"{secret_label} decoded to {len(raw_bytes)} bytes ({ks_format}), but could not be opened.{peek_note}{jks_struct} "
                 f"{action_hint} [keytool: {last_keytool_err}]"
             )
 
