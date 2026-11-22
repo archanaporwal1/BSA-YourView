@@ -182,6 +182,68 @@ def _inspect_jks_structure(raw: bytes) -> str:
     return ", ".join(parts)
 
 
+def _try_recover_masked_jks_alias(
+    raw_bytes: bytes,
+    target_path: str,
+    alias_candidates: List[str],
+    store_pass_candidates: List[str],
+) -> Tuple[List[str], str, str]:
+    """
+    Recovers a JKS keystore whose base64 was copied from a CI/GitHub Actions log where
+    secret masking replaced the exact JKS alias base64 slice (at offset 18, right after the
+    18-byte JKS header) with `***`.
+
+    Security & correctness guarantee:
+    - Only accepts a reconstructed file if Java `keytool -list -v -storepass <pass>` exits 0,
+      which cryptographically verifies the JKS trailing SHA-1 integrity digest.
+    Returns (aliases, sha256_fingerprint, matched_store_pass) on verified recovery, else ([], "", "").
+    """
+    import struct
+    if len(raw_bytes) < 30 or raw_bytes[:4] != b"\xfe\xed\xfe\xed":
+        return ([], "", "")
+    magic, version, count, tag, alias_len = struct.unpack(">IIIIH", raw_bytes[:18])
+    if magic != 0xFEEDFEED or version not in (1, 2) or count < 1 or tag not in (1, 2):
+        return ([], "", "")
+
+    # Check if bytes at offset 18 look like the 8-byte JKS millisecond timestamp (0x000001...)
+    # which occurs when the alias bytes right before it were masked out as '***'
+    looks_like_shifted_timestamp = raw_bytes[18:21] == b"\x00\x00\x01"
+    if not looks_like_shifted_timestamp:
+        return ([], "", "")
+
+    candidate_byte_aliases: List[bytes] = []
+    for a in alias_candidates:
+        if not a:
+            continue
+        for variant in (a.strip().lower(), a.strip(), a.lower(), a):
+            b = variant.encode("utf-8")
+            if len(b) == alias_len and b not in candidate_byte_aliases:
+                candidate_byte_aliases.append(b)
+
+    if not candidate_byte_aliases:
+        return ([], "", "")
+
+    tmp_path = target_path + ".recovered.tmp"
+    try:
+        for alias_bytes in candidate_byte_aliases:
+            rebuilt = raw_bytes[:18] + alias_bytes + raw_bytes[18:]
+            with open(tmp_path, "wb") as f:
+                f.write(rebuilt)
+            for cand_pass in store_pass_candidates:
+                a_list, f_print, _ = _extract_keystore_info(tmp_path, cand_pass)
+                if a_list:
+                    shutil.move(tmp_path, target_path)
+                    print(
+                        f"[ci_injector] Recovered JKS keystore whose {alias_len}-byte alias was masked as '***' "
+                        f"in base64 (SHA-1 integrity verified by keytool, cert SHA-256: {f_print})."
+                    )
+                    return (a_list, f_print, cand_pass)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    return ([], "", "")
+
+
 def decode_base64_to_file(b64_value: str, out_path: str, label: str, unwrap_double_b64: bool = False) -> bool:
     try:
         raw, stats = _decode_base64_bytes(b64_value)
@@ -496,6 +558,20 @@ def configure_ci_signing_keystores(dry_run: bool = False) -> Dict[str, str]:
                 break
             if k_err:
                 last_keytool_err = k_err
+
+        # Auto-recover JKS if base64 came from a log where GitHub Actions masked the alias bytes as '***'
+        if not aliases and ks_format == "JKS" and alias_cands:
+            rec_aliases, rec_fp, rec_pass = _try_recover_masked_jks_alias(
+                raw_bytes=raw_bytes,
+                target_path=target_release,
+                alias_candidates=alias_cands,
+                store_pass_candidates=all_store_candidates,
+            )
+            if rec_aliases and rec_pass:
+                aliases = rec_aliases
+                fp = rec_fp
+                matched_store_pass = rec_pass
+                raw_bytes = Path(target_release).read_bytes()
 
         if aliases and matched_store_pass:
             alias_lower_map = {a.lower(): a for a in aliases}
