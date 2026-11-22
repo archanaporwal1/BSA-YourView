@@ -560,6 +560,23 @@ class BsaServicesUnitTest {
             currentVersionName = "1.0.2"
         )
         assertTrue("Expected v1.1.1 to be detected as newer than v1.0.2 (code 2)", minorOutcome is com.example.bsa.service.UpdateCheckOutcome.UpdateAvailable)
+
+        // Per-build GitHub Release tag v1.0.0-b34 must parse versionCode=34 and detect newer than Build 26
+        val perBuildTagJson = ghReleaseJson.replace("v1.3.5", "v1.0.0-b34").replace("1.3.5", "1.0.0-b34")
+        val perBuildUpdater = com.example.bsa.service.InAppUpdaterService(
+            httpFetcher = com.example.bsa.service.HttpTextFetcher { url ->
+                if (url.contains("api.github.com")) perBuildTagJson else null
+            }
+        )
+        val perBuildOutcome = perBuildUpdater.checkForUpdate(
+            repoOverride = "yourview/bsa-app",
+            currentVersionCode = 26,
+            currentVersionName = "1.0.0"
+        )
+        assertTrue(perBuildOutcome is com.example.bsa.service.UpdateCheckOutcome.UpdateAvailable)
+        val perBuildRel = (perBuildOutcome as com.example.bsa.service.UpdateCheckOutcome.UpdateAvailable).release
+        assertEquals("1.0.0", perBuildRel.versionName)
+        assertEquals(34, perBuildRel.versionCode)
     }
 
     @Test

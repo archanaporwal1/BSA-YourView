@@ -363,7 +363,10 @@ class InAppUpdaterService(
     internal fun parseGitHubReleaseApiJson(rawJson: String): AppReleaseInfo? {
         return runCatching {
             val obj = JSONObject(rawJson)
-            val tag = obj.optString("tag_name", "").trim().lstripVersionPrefix()
+            val rawTag = obj.optString("tag_name", "").trim().lstripVersionPrefix()
+            val buildTagMatch = Regex("""^(.+?)-b(\d+)$""", RegexOption.IGNORE_CASE).matchEntire(rawTag)
+            val parsedVersionName = buildTagMatch?.groupValues?.get(1)?.trim() ?: rawTag
+            val parsedVersionCode = buildTagMatch?.groupValues?.get(2)?.toIntOrNull() ?: 0
             val body = obj.optString("body", "").trim()
             val publishedAt = obj.optString("published_at", "").trim()
             val assets = obj.optJSONArray("assets") ?: return null
@@ -379,16 +382,14 @@ class InAppUpdaterService(
             val apkUrl = asset.optString("browser_download_url", "").trim()
             if (apkUrl.isBlank()) return null
 
-            // GitHub Releases API tags do not carry Android versionCode; pass 0 so isNewerVersion
-            // compares full semantic versionName accurately (e.g., 1.1.0 > 1.0.2, 2.0.0 > 1.9.9).
             AppReleaseInfo(
-                versionCode = 0,
-                versionName = tag.ifBlank { "latest" },
+                versionCode = parsedVersionCode,
+                versionName = parsedVersionName.ifBlank { "latest" },
                 apkFileName = asset.optString("name", "BSA-YourView.apk"),
                 apkUrl = apkUrl,
                 sha256 = "",
                 fileSizeBytes = asset.optLong("size", 0L),
-                releaseNotes = body.ifBlank { "New BSA-YourView release v$tag available." },
+                releaseNotes = body.ifBlank { "New BSA-YourView release v$parsedVersionName available." },
                 publishedAtUtc = publishedAt
             )
         }.getOrNull()

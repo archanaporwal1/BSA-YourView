@@ -989,6 +989,7 @@ def generate_update_manifest_and_notes(
     inventory: Dict[str, List[str]],
     manifest_out: str = "update-manifest.json",
     notes_out: str = "release-notes.md",
+    release_tag: str = "",
 ) -> None:
     """
     Computes SHA-256 & file size of the built APK and emits:
@@ -1010,7 +1011,7 @@ def generate_update_manifest_and_notes(
         or os.environ.get("SIGNING_CERT_SHA256", "").strip()
     )
 
-    tag = f"v{version_name}"
+    tag = release_tag.strip() or f"v{version_name}"
     apk_url = (
         f"https://github.com/{repo}/releases/download/{tag}/{apk_filename}"
         if repo and "/" in repo
@@ -1078,6 +1079,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--auto-bump-code", action="store_true", help="Sync versionCode with GITHUB_RUN_NUMBER when higher")
     parser.add_argument("--generate-update-manifest", action="store_true", help="Generate update-manifest.json & release-notes.md for built APK")
     parser.add_argument("--apk", default="", help="Path to built APK when using --generate-update-manifest")
+    parser.add_argument("--release-tag", default="", help="GitHub Release tag (e.g. v1.0.0-b34) used in update-manifest.json apkUrl")
     parser.add_argument("--manifest-out", default="update-manifest.json", help="Output path for update-manifest.json")
     parser.add_argument("--notes-out", default="release-notes.md", help="Output path for release-notes.md")
     return parser.parse_args(argv)
@@ -1108,6 +1110,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             inventory=inventory,
             manifest_out=args.manifest_out,
             notes_out=args.notes_out,
+            release_tag=args.release_tag,
         )
         return 0
 

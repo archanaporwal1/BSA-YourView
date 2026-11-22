@@ -106,7 +106,7 @@ jobs:
         if: ${{ github.event.inputs.skip_tests != 'true' && env.GRADLE_TEST_TASKS != '' }}
         run: |
           echo "Running unit tests for auto-adopted modules: $GRADLE_TEST_TASKS"
-          $GRADLE_CMD $GRADLE_TEST_TASKS --no-daemon --stacktrace
+          $GRADLE_CMD $GRADLE_TEST_TASKS --no-daemon --no-configuration-cache --stacktrace
 
       - name: Build Android APK
         env:
@@ -119,10 +119,10 @@ jobs:
           echo "Signing mode: ${SIGNING_MODE:-unknown} | Expected cert SHA-256: ${SIGNING_CERT_SHA256:-N/A}"
           if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
             echo "Building signed Release APK for $TARGET_MOD..."
-            $GRADLE_CMD "${TARGET_MOD}:assembleRelease" --no-daemon --stacktrace
+            $GRADLE_CMD "${TARGET_MOD}:assembleRelease" --no-daemon --no-configuration-cache --stacktrace
           else
             echo "Building signed Debug APK for $TARGET_MOD using adopted debug.keystore..."
-            $GRADLE_CMD "${TARGET_MOD}:assembleDebug" --no-daemon --stacktrace
+            $GRADLE_CMD "${TARGET_MOD}:assembleDebug" --no-daemon --no-configuration-cache --stacktrace
           fi
 
       - name: Package Branded APK & Generate SHA-256 Update Manifest
@@ -147,16 +147,19 @@ jobs:
             RESOLVED_VER=$(grep -E 'versionName\s*=' "${APP_DIR}/build.gradle.kts" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           fi
           RESOLVED_VER="${RESOLVED_VER:-1.0.0}"
+          BUILD_CODE="${VERSION_CODE:-${GITHUB_RUN_NUMBER:-1}}"
+          RELEASE_TAG="v${RESOLVED_VER}-b${BUILD_CODE}"
 
           mkdir -p dist
-          BRANDED_APK="dist/BSA-YourView-v${RESOLVED_VER}.apk"
+          BRANDED_APK="dist/BSA-YourView-v${RESOLVED_VER}-b${BUILD_CODE}.apk"
           cp "$APK_PATH" "$BRANDED_APK"
-          echo "Packaged branded APK: $BRANDED_APK"
+          echo "Packaged branded APK: $BRANDED_APK (Release Tag: $RELEASE_TAG)"
 
           python3 ci_injector.py \
             --generate-update-manifest \
             --apk "$BRANDED_APK" \
             --version-name "$RESOLVED_VER" \
+            --release-tag "$RELEASE_TAG" \
             --manifest-out "dist/update-manifest.json" \
             --notes-out "dist/release-notes.md"
 
@@ -166,28 +169,56 @@ jobs:
 
           echo "apk_path=$BRANDED_APK" >> "$GITHUB_OUTPUT"
           echo "version_name=$RESOLVED_VER" >> "$GITHUB_OUTPUT"
+          echo "build_code=$BUILD_CODE" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Upload Build & Module Manifest Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: BSA-YourView-v${{ steps.apk_meta.outputs.version_name }}
+          name: BSA-YourView-${{ steps.apk_meta.outputs.release_tag }}
           path: |
-            dist/BSA-YourView-v${{ steps.apk_meta.outputs.version_name }}.apk
+            ${{ steps.apk_meta.outputs.apk_path }}
             dist/update-manifest.json
             dist/build-module-manifest.json
             dist/release-notes.md
           retention-days: 30
 
-      - name: Publish Release & In-App Update Manifest to GitHub
+      - name: Publish Signed APK & Update Manifest to GitHub Releases
         if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.apk_meta.outputs.version_name }}
-          name: BSA-YourView v${{ steps.apk_meta.outputs.version_name }}
-          body_path: dist/release-notes.md
-          files: |
-            dist/BSA-YourView-v${{ steps.apk_meta.outputs.version_name }}.apk
-            dist/update-manifest.json
-            dist/build-module-manifest.json
-          draft: false
-          prerelease: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.apk_meta.outputs.release_tag }}"
+          VER="${{ steps.apk_meta.outputs.version_name }}"
+          CODE="${{ steps.apk_meta.outputs.build_code }}"
+          APK="${{ steps.apk_meta.outputs.apk_path }}"
+          TITLE="BSA-YourView v${VER} (Build ${CODE})"
+
+          FILES=("$APK" "dist/update-manifest.json")
+          if [ -f dist/build-module-manifest.json ]; then
+            FILES+=("dist/build-module-manifest.json")
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; replacing APK & manifest assets..."
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file "dist/release-notes.md" --latest
+          else
+            echo "Creating new GitHub Release $TAG (Latest) with signed APK..."
+            gh release create "$TAG" "${FILES[@]}" \
+              --title "$TITLE" \
+              --notes-file "dist/release-notes.md" \
+              --target "$GITHUB_SHA" \
+              --latest
+          fi
+
+          RELEASE_URL=$(gh release view "$TAG" --json url --jq .url)
+          echo "Published GitHub Release: $RELEASE_URL"
+          {
+            echo "## BSA-YourView Release Published"
+            echo "- **Release**: [$TITLE]($RELEASE_URL)"
+            echo "- **Tag**: \`$TAG\` (marked **Latest** for in-app auto-updater)"
+            echo "- **APK Asset**: \`$(basename "$APK")\`"
+            echo "- **Signing Mode**: \`${SIGNING_MODE:-unknown}\`"
+            echo "- **Signing Cert SHA-256**: \`${SIGNING_CERT_SHA256:-N/A}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
