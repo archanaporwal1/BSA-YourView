@@ -54,4 +54,13 @@
     <string name="btn_customize_excel">Customize Columns &amp; Date Format</string>
     <string name="btn_export_customized_excel">Export Customized 18-Tab Excel (.xlsx)</string>
     <string name="btn_reset_defaults">Reset</string>
+    <string name="btn_done">Done</string>
+
+    <string name="supported_banks_dialog_title">Supported Indian Banks</string>
+    <string name="supported_banks_universal_note">Beyond these built-in banks (including merged legacy IFSCs like Andhra, Syndicate, Vijaya, Allahabad &amp; Fincare), our Universal Adaptive Parser automatically extracts any unlisted District or Urban Co-operative Bank ePDF.</string>
+    <string name="supported_banks_search_hint">Search bank name or IFSC (e.g. Saraswat, ESFB0)</string>
+    <string name="supported_banks_empty_title">Not in built-in list? Still supported!</string>
+    <string name="supported_banks_empty_body">Upload any unlisted Indian co-operative or regional bank ePDF directly — the Universal Parser auto-detects its header, date format, columns, and RBI IFSC code.</string>
+    <string name="cd_close_bank_directory">Close supported banks directory</string>
+    <string name="cd_clear_search">Clear search</string>
 </resources>

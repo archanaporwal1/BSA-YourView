@@ -47,15 +47,19 @@ object IndianBankParser {
     )
 
     private val DATE_START_REGEX = Regex(
-        """^\s*(?:\d+\s+)?(\d{1,2}[-/\s](?:\d{1,2}|[A-Za-z]{3,4})[-/\s]\d{2,4})\b(.*)$"""
+        """^\s*(?:\d+\s+)?((?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(?:\d{1,2}[-/.\s](?:\d{1,2}|[A-Za-z]{3,4})[-/.\s]\d{2,4}))\b(.*)$"""
     )
 
     private val EXACT_DATE_REGEX = Regex(
-        """^\s*(\d{1,2}[-/\s](?:\d{1,2}|[A-Za-z]{3,4})[-/\s]\d{2,4})\s*$"""
+        """^\s*((?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(?:\d{1,2}[-/.\s](?:\d{1,2}|[A-Za-z]{3,4})[-/.\s]\d{2,4}))\s*$"""
+    )
+
+    private val VALUE_DATE_PREFIX_REGEX = Regex(
+        """^((?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(?:\d{1,2}[-/.\s](?:\d{1,2}|[A-Za-z]{3,4})[-/.\s]\d{2,4}))\s+(.*)$"""
     )
 
     private val AMOUNT_TOKEN_REGEX = Regex(
-        """(?<![A-Za-z0-9/])([+-]?(?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2})(?:\s*\(?\s*(Dr|Cr|DR|CR|dr|cr)\.?\s*\)?)?(?![A-Za-z0-9.])"""
+        """(?<![A-Za-z0-9/])(?:(?:₹|Rs\.?|INR)\s*)?([+-]?(?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2})(?:\s*\(?\s*(Dr|Cr|DR|CR|dr|cr)\.?\s*\)?)?(?![A-Za-z0-9.])"""
     )
 
     private val IFSC_REGEX = Regex("""\b([A-Z]{4}0[A-Z0-9]{6})\b""")
@@ -69,9 +73,9 @@ object IndianBankParser {
         """(?i)(?:Address|Communication\s*Address|Branch\s*Address)\s*[:\-]\s*(.{8,140})"""
     )
     private val PERIOD_REGEX = Regex(
-        """(?i)(?:Statement\s*Period|Period|From)\s*[:\-]?\s*(\d{1,2}[-/\s](?:\d{1,2}|[A-Za-z]{3})[-/\s]\d{2,4})\s*(?:to|-|–)\s*(\d{1,2}[-/\s](?:\d{1,2}|[A-Za-z]{3})[-/\s]\d{2,4})"""
+        """(?i)(?:Statement\s*Period|Period|From)\s*[:\-]?\s*((?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(?:\d{1,2}[-/.\s](?:\d{1,2}|[A-Za-z]{3,4})[-/.\s]\d{2,4}))\s*(?:to|-|–)\s*((?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(?:\d{1,2}[-/.\s](?:\d{1,2}|[A-Za-z]{3,4})[-/.\s]\d{2,4}))"""
     )
-    private val CHEQUE_REGEX = Regex("""\b(?:CHQ|CHEQUE|REF|INST)[\s.:/-]*(\d{6,10})\b""", RegexOption.IGNORE_CASE)
+    private val CHEQUE_REGEX = Regex("""\b(?:CHQ|CHEQUE|REF|INST|UTR)[\s.:/-]*(\d{6,10})\b""", RegexOption.IGNORE_CASE)
 
     private data class ColumnLayout(
         val dateMaxX: Float,
@@ -142,12 +146,11 @@ object IndianBankParser {
     }
 
     fun detectBank(text: String): String {
-        val preTableHeader = extractPreTableHeader(text)
-        detectBankInChunk(preTableHeader)?.let { return it }
-        return detectBankInChunk(text.uppercase(Locale.ROOT)) ?: "Indian Scheduled Bank"
+        val preTableHeaderRaw = extractPreTableHeaderRaw(text)
+        return IndianBankRegistry.detectBankName(preTableHeaderRaw, text)
     }
 
-    private fun extractPreTableHeader(text: String): String {
+    private fun extractPreTableHeaderRaw(text: String): String {
         val lines = text.replace("\r\n", "\n").replace("\r", "\n").lines()
         val headerLines = mutableListOf<String>()
         for (line in lines) {
@@ -159,90 +162,7 @@ object IndianBankParser {
             headerLines.add(trimmed)
             if (headerLines.size >= 15) break
         }
-        return headerLines.joinToString("\n").uppercase(Locale.ROOT)
-    }
-
-    private fun detectBankInChunk(upper: String): String? {
-        val bankNameTokens = listOf(
-            "ICICI BANK" to "ICICI Bank",
-            "HDFC BANK" to "HDFC Bank",
-            "STATE BANK OF INDIA" to "SBI",
-            "AXIS BANK" to "Axis Bank",
-            "KOTAK MAHINDRA" to "Kotak Mahindra Bank",
-            "UNION BANK OF INDIA" to "Union Bank",
-            "BANK OF BARODA" to "Bank of Baroda",
-            "CANARA BANK" to "Canara Bank",
-            "PUNJAB NATIONAL BANK" to "Punjab National Bank",
-            "INDUSIND BANK" to "IndusInd Bank",
-            "IDFC FIRST" to "IDFC FIRST Bank",
-            "YES BANK" to "Yes Bank",
-            "FEDERAL BANK" to "Federal Bank",
-            "INDIAN BANK" to "Indian Bank",
-            "BANK OF INDIA" to "Bank of India",
-            "CENTRAL BANK OF INDIA" to "Central Bank of India",
-            "INDIAN OVERSEAS BANK" to "Indian Overseas Bank",
-            "UCO BANK" to "UCO Bank",
-            "BANK OF MAHARASHTRA" to "Bank of Maharashtra",
-            "PUNJAB AND SIND BANK" to "Punjab & Sind Bank",
-            "IDBI BANK" to "IDBI Bank",
-            "RBL BANK" to "RBL Bank",
-            "BANDHAN BANK" to "Bandhan Bank",
-            "AU SMALL FINANCE" to "AU Small Finance Bank",
-            "SOUTH INDIAN BANK" to "South Indian Bank",
-            "KARUR VYSYA BANK" to "Karur Vysya Bank",
-            "CITY UNION BANK" to "City Union Bank",
-            "STANDARD CHARTERED" to "Standard Chartered Bank"
-        )
-        // 1. Prefer earliest explicit bank name appearance in the header
-        val earliestName = bankNameTokens
-            .mapNotNull { (token, name) ->
-                val idx = upper.indexOf(token)
-                if (idx >= 0) idx to name else null
-            }
-            .minByOrNull { it.first }
-        if (earliestName != null) return earliestName.second
-
-        // 2. Next check IFSC / short tokens by earliest occurrence
-        val ifscTokens = listOf(
-            "ICIC0" to "ICICI Bank",
-            "HDFC0" to "HDFC Bank",
-            "SBIN0" to "SBI",
-            "UTIB0" to "Axis Bank",
-            "KKBK0" to "Kotak Mahindra Bank",
-            "UBIN0" to "Union Bank",
-            "BARB0" to "Bank of Baroda",
-            "CNRB0" to "Canara Bank",
-            "PUNB0" to "Punjab National Bank",
-            "INDB0" to "IndusInd Bank",
-            "IDFB0" to "IDFC FIRST Bank",
-            "YESB0" to "Yes Bank",
-            "FDRL0" to "Federal Bank",
-            "IDIB0" to "Indian Bank",
-            "BKID0" to "Bank of India",
-            "CBIN0" to "Central Bank of India",
-            "IOBA0" to "Indian Overseas Bank",
-            "UCBA0" to "UCO Bank",
-            "MAHB0" to "Bank of Maharashtra",
-            "PSIB0" to "Punjab & Sind Bank",
-            "IBKL0" to "IDBI Bank",
-            "RATN0" to "RBL Bank",
-            "BDBL0" to "Bandhan Bank",
-            "AUBL0" to "AU Small Finance Bank",
-            "SIBL0" to "South Indian Bank",
-            "KVBL0" to "Karur Vysya Bank",
-            "CIUB0" to "City Union Bank",
-            "SCBL0" to "Standard Chartered Bank"
-        )
-        val earliestIfsc = ifscTokens
-            .mapNotNull { (token, name) ->
-                val idx = upper.indexOf(token)
-                if (idx >= 0) idx to name else null
-            }
-            .minByOrNull { it.first }
-        if (earliestIfsc != null) return earliestIfsc.second
-
-        if (Regex("""\bSBI\b""").containsMatchIn(upper)) return "SBI"
-        return null
+        return headerLines.joinToString("\n")
     }
 
     private fun extractMetadata(bankName: String, fullText: String, lines: List<String>): AccountMetadata {
@@ -453,10 +373,16 @@ object IndianBankParser {
 
     private fun detectColumnLayout(row: PdfVisualRow): ColumnLayout? {
         val joinedUpper = row.joinedLine().uppercase(Locale.ROOT)
-        if (!joinedUpper.contains("DATE") || !joinedUpper.contains("BALANCE")) return null
-        if (!(joinedUpper.contains("PARTICULAR") || joinedUpper.contains("NARRATION") || joinedUpper.contains("DESCRIPTION") || joinedUpper.contains("REMARK"))) {
-            return null
-        }
+        val hasDate = joinedUpper.contains("DATE") || joinedUpper.contains("TXN DT") || joinedUpper.contains("TRAN DT")
+        val hasBalance = joinedUpper.contains("BALANCE") || Regex("""\bBAL\.?\b""").containsMatchIn(joinedUpper)
+        if (!hasDate || !hasBalance) return null
+        val hasDesc = joinedUpper.contains("PARTICULAR") ||
+            joinedUpper.contains("NARRATION") ||
+            joinedUpper.contains("DESCRIPTION") ||
+            joinedUpper.contains("REMARK") ||
+            joinedUpper.contains("DETAIL") ||
+            joinedUpper.contains("TRANSACTION")
+        if (!hasDesc) return null
 
         var dateMaxX = 95f
         var debitCenter: Float? = null
@@ -465,14 +391,14 @@ object IndianBankParser {
         var chequeCenter: Float? = null
 
         for (cell in row.cells) {
-            val u = cell.text.uppercase(Locale.ROOT)
+            val u = cell.text.uppercase(Locale.ROOT).trim()
             val cx = (cell.x + cell.endX) / 2f
             when {
-                u.contains("DATE") && !u.contains("VALUE") -> dateMaxX = maxOf(dateMaxX, cell.endX)
-                u.contains("CHQ") || u.contains("CHEQUE") || u.contains("REF") -> chequeCenter = cx
-                u.contains("WITHDRAW") || u.contains("DEBIT") || u == "DR" || u.contains("DR.") -> debitCenter = cx
-                u.contains("DEPOSIT") || u.contains("CREDIT") || u == "CR" || u.contains("CR.") -> creditCenter = cx
-                u.contains("BALANCE") -> balanceMinX = cell.x
+                (u.contains("DATE") || u.contains("DT")) && !u.contains("VALUE") -> dateMaxX = maxOf(dateMaxX, cell.endX)
+                u.contains("CHQ") || u.contains("CHEQUE") || u.contains("REF") || u.contains("UTR") || u.contains("INST") -> chequeCenter = cx
+                u.contains("WITHDRAW") || u.contains("DEBIT") || u.contains("PAID OUT") || u == "DR" || u.startsWith("DR.") || u.contains("DR AMT") || u.contains("DR AMOUNT") -> debitCenter = cx
+                u.contains("DEPOSIT") || u.contains("CREDIT") || u.contains("PAID IN") || u == "CR" || u.startsWith("CR.") || u.contains("CR AMT") || u.contains("CR AMOUNT") -> creditCenter = cx
+                u.contains("BALANCE") || u == "BAL" || u == "BAL." || u.contains("CLOSING BAL") || u.contains("RUNNING BAL") || u.contains("AVAILABLE BAL") -> balanceMinX = cell.x
             }
         }
 
@@ -534,7 +460,7 @@ object IndianBankParser {
 
         for ((parsedDate, bodyBuilder) in stitchedBlocks) {
             var body = bodyBuilder.toString().replace(Regex("""\s+"""), " ").trim()
-            val valueDateMatch = Regex("""^(\d{1,2}[-/\s](?:\d{1,2}|[A-Za-z]{3,4})[-/\s]\d{2,4})\s+(.*)$""").find(body)
+            val valueDateMatch = VALUE_DATE_PREFIX_REGEX.find(body)
             if (valueDateMatch != null && parseIndianDate(valueDateMatch.groupValues[1]) != null) {
                 body = valueDateMatch.groupValues[2].trim()
             }
@@ -784,7 +710,14 @@ object IndianBankParser {
 
     private fun isHeaderLine(line: String): Boolean {
         val u = line.uppercase(Locale.ROOT)
-        return (u.contains("DATE") && (u.contains("PARTICULARS") || u.contains("NARRATION") || u.contains("DESCRIPTION")) && u.contains("BALANCE"))
+        val hasDate = u.contains("DATE") || u.contains("TXN DT") || u.contains("TRAN DT")
+        val hasBal = u.contains("BALANCE") || Regex("""\bBAL\.?\b""").containsMatchIn(u)
+        val hasDesc = u.contains("PARTICULAR") ||
+            u.contains("NARRATION") ||
+            u.contains("DESCRIPTION") ||
+            u.contains("REMARK") ||
+            u.contains("DETAIL")
+        return hasDate && hasDesc && hasBal
     }
 
     private fun isNoiseLine(line: String): Boolean {
@@ -836,14 +769,21 @@ object IndianBankParser {
     }
 
     fun parseIndianDate(token: String): ParsedDate? {
-        val parts = token.trim().split(Regex("""[-/\s]+"""))
+        val parts = token.trim().split(Regex("""[-/.\s]+"""))
         if (parts.size != 3) return null
 
-        val day = parts[0].toIntOrNull() ?: return null
+        val firstNum = parts[0].toIntOrNull() ?: return null
         val monthStr = parts[1].uppercase(Locale.ROOT)
         val month = monthStr.toIntOrNull() ?: MONTH_MAP[monthStr] ?: return null
-        var year = parts[2].toIntOrNull() ?: return null
-        if (year < 100) year += 2000
+        val thirdNum = parts[2].toIntOrNull() ?: return null
+
+        // Support both ISO (YYYY-MM-DD) and Indian (DD-MM-YYYY / DD.MM.YYYY / DD-MMM-YY)
+        val (year, day) = if (parts[0].length == 4 && firstNum in 2000..2099) {
+            firstNum to thirdNum
+        } else {
+            val resolvedYear = if (thirdNum < 100) thirdNum + 2000 else thirdNum
+            resolvedYear to firstNum
+        }
 
         if (year !in 2000..2099 || month !in 1..12 || day !in 1..31) return null
         return ParsedDate(year, month, day)

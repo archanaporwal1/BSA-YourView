@@ -4,6 +4,8 @@ import com.example.bsa.engine.ForensicExtractionResult
 import com.example.bsa.engine.ForensicGatekeeper
 import com.example.bsa.engine.FuzzyMatcherAndCategorizer
 import com.example.bsa.engine.IndianBankParser
+import com.example.bsa.engine.IndianBankRegistry
+import com.example.bsa.engine.IndianBankSpec
 import com.example.bsa.engine.ParsedStatementFile
 import com.example.bsa.engine.PdfVisualRow
 import com.example.bsa.engine.RawParsedTransaction
@@ -106,11 +108,15 @@ class BankStatementParser {
     }
 
     /**
-     * Identifies the matching bank-specific header format profile from extracted PDF text.
+     * Identifies the matching bank-specific header format profile from extracted PDF text
+     * across 135+ built-in Indian banks (PSUs, Private, SFB, Payments, Co-op, RRB, Foreign)
+     * plus dynamic header extraction for any unlisted regional/co-operative bank.
      */
     fun identifyBankHeaderProfile(fullText: String): BankHeaderProfile {
-        val dateRowRegex = Regex("""^\s*(?:\d+\s+)?\d{1,2}[-/\s](?:\d{1,2}|[A-Za-z]{3,4})[-/\s]\d{2,4}\b""")
-        val headerBlock = fullText.replace("\r\n", "\n").replace("\r", "\n")
+        val dateRowRegex = Regex(
+            """^\s*(?:\d+\s+)?((?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(?:\d{1,2}[-/.\s](?:\d{1,2}|[A-Za-z]{3,4})[-/.\s]\d{2,4}))\b"""
+        )
+        val headerBlockRaw = fullText.replace("\r\n", "\n").replace("\r", "\n")
             .lines()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -119,20 +125,16 @@ class BankStatementParser {
             }
             .take(15)
             .joinToString("\n")
-            .uppercase(Locale.ROOT)
+        val headerBlock = headerBlockRaw.uppercase(Locale.ROOT)
 
-        // 1. Match earliest primary bank name token (index 0 of detectionTokens) in pre-table header
-        val earliestNameMatch = BANK_PROFILES
-            .mapNotNull { profile ->
-                val primaryToken = profile.detectionTokens.firstOrNull() ?: return@mapNotNull null
-                val idx = headerBlock.indexOf(primaryToken)
-                if (idx >= 0) idx to profile else null
-            }
-            .minByOrNull { it.first }
-        if (earliestNameMatch != null) return earliestNameMatch.second
+        // 1. Check comprehensive 135+ IndianBankRegistry in pre-table header first
+        IndianBankRegistry.detectBankInText(headerBlock, "")?.let { spec ->
+            return BANK_PROFILES.firstOrNull { it.bankName.equals(spec.canonicalName, ignoreCase = true) }
+                ?: spec.toHeaderProfile()
+        }
 
-        // 2. Match earliest IFSC / secondary token in pre-table header
-        val earliestSecondaryMatch = BANK_PROFILES
+        // 2. Match earliest primary or secondary token across top 6 detailed profiles
+        val earliestProfileMatch = BANK_PROFILES
             .mapNotNull { profile ->
                 val idx = profile.detectionTokens.mapNotNull { t ->
                     val i = headerBlock.indexOf(t)
@@ -141,28 +143,41 @@ class BankStatementParser {
                 if (idx != null) idx to profile else null
             }
             .minByOrNull { it.first }
-        if (earliestSecondaryMatch != null) return earliestSecondaryMatch.second
+        if (earliestProfileMatch != null) return earliestProfileMatch.second
 
-        // 3. Fallback: match bank-specific column header combination in header block
+        // 3. Universal dynamic bank header extraction (e.g. unlisted urban/district co-op banks)
+        IndianBankRegistry.extractDynamicBankName(headerBlockRaw)?.let { dynamicName ->
+            val ifscPrefix = Regex("""\b([A-Z]{4}0)[A-Z0-9]{6}\b""").find(headerBlock)?.groupValues?.get(1).orEmpty()
+            return GENERIC_PROFILE.copy(
+                bankName = dynamicName,
+                ifscPrefix = ifscPrefix
+            )
+        }
+
+        // 4. Match bank-specific column header combination in header block
         val bestHeaderMatch = BANK_PROFILES.maxByOrNull { profile ->
             profile.headerKeywords.count { kw -> headerBlock.contains(kw) }
         }
         val bestHeaderScore = bestHeaderMatch?.headerKeywords?.count { kw -> headerBlock.contains(kw) } ?: 0
         if (bestHeaderMatch != null && bestHeaderScore >= 4) return bestHeaderMatch
 
-        // 4. Final fallback across full text by earliest occurrence
-        val upper = fullText.uppercase(Locale.ROOT)
-        val fullMatch = BANK_PROFILES
-            .mapNotNull { profile ->
-                val idx = profile.detectionTokens.mapNotNull { t ->
-                    val i = upper.indexOf(t)
-                    if (i >= 0) i else null
-                }.minOrNull()
-                if (idx != null) idx to profile else null
-            }
-            .minByOrNull { it.first }
-        return fullMatch?.second ?: GENERIC_PROFILE
+        // 5. Final fallback across full text via 135+ registry
+        IndianBankRegistry.detectBankInText("", fullText)?.let { spec ->
+            return BANK_PROFILES.firstOrNull { it.bankName.equals(spec.canonicalName, ignoreCase = true) }
+                ?: spec.toHeaderProfile()
+        }
+
+        return GENERIC_PROFILE
     }
+
+    private fun IndianBankSpec.toHeaderProfile(): BankHeaderProfile = BankHeaderProfile(
+        bankName = canonicalName,
+        detectionTokens = headerTokens + ifscPrefixes,
+        ifscPrefix = ifscPrefixes.firstOrNull().orEmpty(),
+        headerKeywords = headerKeywords,
+        typicalColumns = typicalColumns,
+        hasSeparateValueDate = hasSeparateValueDate
+    )
 
     /**
      * Parses raw PDF bytes directly using PDFBox's PDFTextStripper on a background thread,

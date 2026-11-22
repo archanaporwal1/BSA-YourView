@@ -1136,6 +1136,86 @@ class BsaServicesUnitTest {
             assertTrue(extracted.contains("CONSOLIDATED PORTFOLIO RISK BREAKDOWN"))
         }
     }
+
+    @Test
+    fun expandedIndianBankRegistryAndUniversalParserSupport130PlusBanksAndAnyUnknownBank() {
+        val registry = com.example.bsa.engine.IndianBankRegistry
+        val indianParser = com.example.bsa.engine.IndianBankParser
+
+        // 1. Verify comprehensive 130+ coverage across all 7 RBI categories
+        assertTrue(
+            "Expected >= 130 built-in Indian banks, got ${registry.totalSupportedCount}",
+            registry.totalSupportedCount >= 130
+        )
+        val byCat = registry.countsByCategory()
+        assertEquals(12, byCat[com.example.bsa.engine.BankCategory.PUBLIC_SECTOR])
+        assertEquals(21, byCat[com.example.bsa.engine.BankCategory.PRIVATE_SECTOR])
+        assertEquals(11, byCat[com.example.bsa.engine.BankCategory.SMALL_FINANCE])
+        assertEquals(6, byCat[com.example.bsa.engine.BankCategory.PAYMENTS])
+        assertTrue((byCat[com.example.bsa.engine.BankCategory.COOPERATIVE] ?: 0) >= 30)
+        assertTrue((byCat[com.example.bsa.engine.BankCategory.REGIONAL_RURAL] ?: 0) >= 25)
+        assertTrue((byCat[com.example.bsa.engine.BankCategory.FOREIGN] ?: 0) >= 18)
+
+        // 2. Verify detection across Private, Small Finance, Payments, Co-op, RRB, Foreign & Merged Legacy IFSCs
+        assertEquals("Tamilnad Mercantile Bank", indianParser.detectBank("TAMILNAD MERCANTILE BANK LTD\nIFSC: TMBL0000123"))
+        assertEquals("Equitas Small Finance Bank", indianParser.detectBank("EQUITAS SMALL FINANCE BANK\nIFSC: ESFB0001122"))
+        assertEquals("India Post Payments Bank", indianParser.detectBank("INDIA POST PAYMENTS BANK\nIFSC: IPOS0000001"))
+        assertEquals("Saraswat Co-operative Bank", indianParser.detectBank("THE SARASWAT CO-OPERATIVE BANK LTD\nIFSC: SRCB0000142"))
+        assertEquals("Kerala Gramin Bank", indianParser.detectBank("KERALA GRAMIN BANK\nIFSC: KLGB0040123"))
+        assertEquals("HSBC Bank India", indianParser.detectBank("HSBC BANK INDIA\nIFSC: HSBC0400002"))
+        // Merged legacy bank IFSC codes route cleanly to acquiring bank
+        assertEquals("Union Bank", indianParser.detectBank("STATEMENT OF ACCOUNT\nIFSC: ANDB0001234"))
+        assertEquals("Canara Bank", indianParser.detectBank("STATEMENT OF ACCOUNT\nIFSC: SYNB0004321"))
+        assertEquals("AU Small Finance Bank", indianParser.detectBank("FINCARE SMALL FINANCE BANK\nIFSC: FSFB0000123"))
+
+        // 3. Verify BankStatementParser resolves profiles for newly added banks (not generic fallback)
+        val saraswatProfile = parser.identifyBankHeaderProfile("THE SARASWAT CO-OPERATIVE BANK LTD\nIFSC: SRCB0000142\nDate Particulars Debit Credit Balance")
+        assertEquals("Saraswat Co-operative Bank", saraswatProfile.bankName)
+        assertEquals("SRCB0", saraswatProfile.ifscPrefix)
+
+        // 4. Verify Universal Dynamic Bank Detection for an unlisted district/urban co-op bank + DD.MM.YYYY dot dates
+        val unlistedCoopText = """
+            THE DECCAN NAGARI SAHAKARI BANK LTD
+            Account Holder Name: SURESH PATIL
+            Account Number: 100234567890   IFSC: DNSX0000045
+            Statement Period: 01.08.2026 to 31.08.2026
+            Txn Date   Transaction Details   Dr Amt   Cr Amt   Closing Bal
+            03.08.2026   NEFT/CR/ALPHA TRADERS   0.00   250,000.00   350,000.00 Cr
+            12.08.2026   IMPS/DR/BETA HARDWARE   75,000.00   0.00   275,000.00 Cr
+        """.trimIndent()
+        val coopParsed = indianParser.parseStatement("deccan_coop.pdf", unlistedCoopText, FacilityType.NONE)
+        assertTrue(
+            "Expected dynamic bank name containing Deccan Nagari Sahakari Bank, got: ${coopParsed.metadata.bankName}",
+            coopParsed.metadata.bankName.contains("Deccan Nagari Sahakari Bank", ignoreCase = true)
+        )
+        assertEquals(2, coopParsed.transactions.size)
+        assertEquals("2026-08-03", coopParsed.transactions[0].dateIso)
+        assertEquals(250000.0, coopParsed.transactions[0].signedAmount, 0.01)
+        assertEquals("2026-08-12", coopParsed.transactions[1].dateIso)
+        assertEquals(-75000.0, coopParsed.transactions[1].signedAmount, 0.01)
+
+        // 5. Verify ISO YYYY-MM-DD dates + ₹ symbol amounts (Foreign / Payments Bank eStatement format)
+        val isoForeignText = """
+            HSBC BANK INDIA
+            Account Holder Name: RITU MENON
+            Account Number: 052123456001   IFSC: HSBC0400002
+            Date   Description   Paid Out   Paid In   Available Bal
+            2026-08-04   NEFT CR SALARY ACME CORP   ₹0.00   ₹180,000.00   ₹280,000.00
+            2026-08-10   UPI DR RENT PAYMENT   ₹35,000.00   ₹0.00   ₹245,000.00
+        """.trimIndent()
+        val hsbcParsed = indianParser.parseStatement("hsbc_aug.pdf", isoForeignText, FacilityType.NONE)
+        assertEquals("HSBC Bank India", hsbcParsed.metadata.bankName)
+        assertEquals(2, hsbcParsed.transactions.size)
+        assertEquals("2026-08-04", hsbcParsed.transactions[0].dateIso)
+        assertEquals(180000.0, hsbcParsed.transactions[0].signedAmount, 0.01)
+        assertEquals(-35000.0, hsbcParsed.transactions[1].signedAmount, 0.01)
+
+        // 6. Verify filename bank hints work across all categories
+        assertEquals("Saraswat Co-operative Bank", registry.inferBankFromFilename("Saraswat_CA_Aug2026.pdf"))
+        assertEquals("Equitas Small Finance Bank", registry.inferBankFromFilename("ESFB0001122_stmt.pdf"))
+        assertEquals("India Post Payments Bank", registry.inferBankFromFilename("IPPB_statement_Q2.pdf"))
+        assertEquals("Kerala Gramin Bank", registry.inferBankFromFilename("KLGB_passbook.pdf"))
+    }
 }
 
 

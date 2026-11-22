@@ -420,22 +420,6 @@ class OnlineEnrichmentService(
     }
 
     private fun shortBankName(officialBank: String): String {
-        val u = officialBank.uppercase(Locale.ROOT)
-        return when {
-            u.contains("HDFC") -> "HDFC Bank"
-            u.contains("ICICI") -> "ICICI Bank"
-            u.contains("STATE BANK OF INDIA") -> "SBI"
-            u.contains("AXIS") -> "Axis Bank"
-            u.contains("KOTAK") -> "Kotak Mahindra Bank"
-            u.contains("UNION BANK") -> "Union Bank"
-            u.contains("PUNJAB NATIONAL") -> "PNB"
-            u.contains("BANK OF BARODA") -> "Bank of Baroda"
-            u.contains("CANARA") -> "Canara Bank"
-            u.contains("INDUSIND") -> "IndusInd Bank"
-            u.contains("YES BANK") -> "Yes Bank"
-            u.contains("IDFC") -> "IDFC First Bank"
-            u.contains("FEDERAL") -> "Federal Bank"
-            else -> officialBank.split(" ").take(3).joinToString(" ")
-        }
+        return com.example.bsa.engine.IndianBankRegistry.normalizeBankName(officialBank)
     }
 }

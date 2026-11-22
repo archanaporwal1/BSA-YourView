@@ -725,23 +725,7 @@ class BsaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun inferBankHintFromFilename(fileName: String): String {
-        val upper = fileName.uppercase(Locale.ROOT)
-        return when {
-            "ICICI" in upper || "ICIC" in upper -> "ICICI Bank"
-            "HDFC" in upper -> "HDFC Bank"
-            "SBI" in upper || "STATE_BANK" in upper || "SBIN" in upper -> "SBI"
-            "AXIS" in upper || "UTIB" in upper -> "Axis Bank"
-            "KOTAK" in upper || "KKBK" in upper -> "Kotak Mahindra"
-            "UNION" in upper || "UBIN" in upper -> "Union Bank"
-            "BOB" in upper || "BARODA" in upper -> "Bank of Baroda"
-            "CANARA" in upper -> "Canara Bank"
-            "PNB" in upper || "PUNJAB" in upper -> "PNB"
-            "INDUS" in upper -> "IndusInd Bank"
-            "IDFC" in upper -> "IDFC FIRST"
-            "FEDERAL" in upper -> "Federal Bank"
-            "YES" in upper && "BANK" in upper -> "Yes Bank"
-            else -> ""
-        }
+        return com.example.bsa.engine.IndianBankRegistry.inferBankFromFilename(fileName)
     }
 
     fun openPasswordPrompt(fileId: String, resumeAnalysis: Boolean = false) {

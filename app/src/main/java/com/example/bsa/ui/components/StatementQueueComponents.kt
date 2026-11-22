@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.bsa.engine.IndianBankRegistry
 import com.example.bsa.model.QueueFileStatus
 import com.example.bsa.model.StagedPdfFile
 import com.example.ui.theme.JetBrainsMono
@@ -62,6 +63,7 @@ fun StatementQueueSection(
 ) {
     var slotToRename by remember { mutableStateOf<String?>(null) }
     var renameDraft by remember { mutableStateOf("") }
+    var showBankDirectory by remember { mutableStateOf(false) }
 
     val activeAccountsUsed = remember(stagedFiles) {
         stagedFiles.map { it.accountGroupLabel }.distinct().size
@@ -415,12 +417,57 @@ fun StatementQueueSection(
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = "Supported Indian Banks (25+): ICICI, HDFC, SBI, Axis, Kotak, Union, BoB, Canara, PNB, IndusInd, IDFC FIRST, Federal, Yes, Indian Bank & more • Auto-detects encrypted ePDFs.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Spacer(Modifier.height(12.dp))
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "Supported Banks: ${IndianBankRegistry.totalSupportedCount}+ Indian Banks + Universal Parser",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "All 12 PSUs, 21 Private, 11 Small Finance, 6 Payments, 35 Co-op, 30 RRBs, 20 Foreign & any unlisted bank ePDF • Auto-detects encrypted PDFs.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = { showBankDirectory = true },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("view_supported_banks_button")
+                ) {
+                    Text(
+                        text = "View All",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+    }
+
+    if (showBankDirectory) {
+        SupportedBanksDirectoryDialog(onDismiss = { showBankDirectory = false })
     }
 
     // Rename Account Slot Dialog
