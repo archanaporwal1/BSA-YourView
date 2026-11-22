@@ -235,6 +235,9 @@ fun InAppUpdateDialog(
     updateState: AppUpdateUiState,
     currentVersionLabel: String,
     needsInstallPermission: Boolean,
+    hasSignatureConflict: Boolean = false,
+    installedCertShort: String = "",
+    releaseCertShort: String = "",
     onStartDownload: () -> Unit,
     onInstallApk: (File) -> Unit,
     onRequestInstallPermission: () -> Unit,
@@ -319,6 +322,12 @@ fun InAppUpdateDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        if (hasSignatureConflict) {
+                            SignatureConflictNoticeCard(
+                                installedCertShort = installedCertShort,
+                                releaseCertShort = releaseCertShort
+                            )
+                        }
                         Text(
                             text = "Downloads and installs directly inside BSA-YourView with SHA-256 verification, then automatically reopens the app.",
                             style = MaterialTheme.typography.labelSmall,
@@ -385,6 +394,12 @@ fun InAppUpdateDialog(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                 )
                             }
+                        }
+                        if (hasSignatureConflict) {
+                            SignatureConflictNoticeCard(
+                                installedCertShort = installedCertShort,
+                                releaseCertShort = releaseCertShort
+                            )
                         }
                         if (needsInstallPermission) {
                             Surface(
@@ -504,6 +519,57 @@ fun InAppUpdateDialog(
             }
         }
     )
+}
+
+@Composable
+private fun SignatureConflictNoticeCard(
+    installedCertShort: String,
+    releaseCertShort: String
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+        modifier = Modifier.testTag("update_signature_conflict_banner")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.GppMaybe,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "Signing Key Changed — One-Time Reinstall Needed",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+            Text(
+                text = "This release was signed with a different keystore than the currently installed build. Uninstall this older build once and install the new GitHub Release APK so all future in-app updates succeed with zero package conflicts.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            if (installedCertShort.isNotBlank() && releaseCertShort.isNotBlank()) {
+                Text(
+                    text = "Installed: $installedCertShort… • Release: $releaseCertShort…",
+                    fontFamily = JetBrainsMono,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+    }
 }
 
 private fun formatMb(bytes: Long): String {

@@ -335,10 +335,26 @@ fun BankAnalysierApp(
 
             // 100% In-App Auto-Updater Modal Dialog (zero browser redirect)
             if (uiState.showUpdateDialog && uiState.updateState !is AppUpdateUiState.Idle && uiState.updateState !is AppUpdateUiState.UpToDate) {
+                val installedCertSha256 = remember(context) {
+                    viewModel.updaterService.getInstalledSigningCertSha256(context)
+                }
+                val activeRelease = when (val st = uiState.updateState) {
+                    is AppUpdateUiState.UpdateAvailable -> st.release
+                    is AppUpdateUiState.Downloading -> st.release
+                    is AppUpdateUiState.ReadyToInstall -> st.release
+                    is AppUpdateUiState.Installing -> st.release
+                    else -> null
+                }
+                val hasSignatureConflict = activeRelease != null &&
+                    viewModel.updaterService.hasSigningCertificateConflict(context, activeRelease)
+
                 InAppUpdateDialog(
                     updateState = uiState.updateState,
                     currentVersionLabel = viewModel.currentAppVersionDisplay(),
                     needsInstallPermission = !canInstallPackages,
+                    hasSignatureConflict = hasSignatureConflict,
+                    installedCertShort = installedCertSha256.take(14),
+                    releaseCertShort = activeRelease?.signingCertSha256?.take(14).orEmpty(),
                     onStartDownload = viewModel::startInAppUpdateDownload,
                     onInstallApk = { apkFile ->
                         canInstallPackages = viewModel.updaterService.canInstallPackagesInApp(context)

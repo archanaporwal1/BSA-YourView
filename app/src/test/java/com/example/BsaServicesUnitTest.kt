@@ -483,6 +483,7 @@ class BsaServicesUnitTest {
               "apkFileName": "BSA-YourView-v1.2.0.apk",
               "apkUrl": "https://github.com/yourview/bsa-app/releases/download/v1.2.0/BSA-YourView-v1.2.0.apk",
               "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              "signingCertSha256": "97:BA:ED:2D:87:12:86:35:09:9A:A5:BE:59:B3:38:A2:31:A6:88:F3:95:8D:4D:E6:C5:B1:DC:08:82:E1:5A:64",
               "fileSizeBytes": 18452000,
               "releaseNotes": "Hybrid RBI IFSC & In-App Auto-Updater release.",
               "publishedAtUtc": "2026-11-20T12:00:00Z"
@@ -509,6 +510,10 @@ class BsaServicesUnitTest {
         assertEquals("1.2.0", release.versionName)
         assertEquals("BSA-YourView-v1.2.0.apk", release.apkFileName)
         assertEquals(64, release.sha256.length)
+        assertTrue(release.signingCertSha256.startsWith("97:BA:ED:2D"))
+        assertFalse(updater.isCertificateMismatch("97baed2d87128635099aa5be59b338a231a688f3958d4de6c5b1dc0882e15a64", release.signingCertSha256))
+        assertTrue(updater.isCertificateMismatch("AA:BB:CC:DD", release.signingCertSha256))
+        assertFalse(updater.isCertificateMismatch("", release.signingCertSha256))
 
         // Up-to-date when already on versionCode 12 / 1.2.0
         val upToDate = updater.checkForUpdate(repoOverride = "yourview/bsa-app", currentVersionCode = 12, currentVersionName = "1.2.0")

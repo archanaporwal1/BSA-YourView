@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -84,19 +85,199 @@ def inject_google_services(app_dir: str) -> None:
         print(f"[ci_injector] Info: {target} not found and GOOGLE_SERVICES_JSON_B64 not set; skipping.")
 
 
-def inject_release_keystore() -> None:
-    target = "my-upload-key.jks"
-    if os.path.exists(target) and os.path.getsize(target) > 0:
-        print(f"[ci_injector] Using existing {target} in repository root.")
-        return
+def _run_keytool(args: List[str]) -> Tuple[int, str, str]:
+    try:
+        proc = subprocess.run(
+            ["keytool"] + args,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return (proc.returncode, proc.stdout or "", proc.stderr or "")
+    except FileNotFoundError:
+        return (127, "", "keytool not found on PATH")
 
-    b64 = os.environ.get("KEYSTORE_BASE64", "").strip()
-    if b64:
-        if decode_base64_to_file(b64, target, "KEYSTORE_BASE64"):
-            return
-        print("[ci_injector] Warning: KEYSTORE_BASE64 was invalid; removing partial file.")
-        if os.path.exists(target):
-            os.remove(target)
+
+def _extract_keystore_info(keystore_path: str, store_pass: str) -> Tuple[List[str], str]:
+    """
+    Returns (aliases, sha256_fingerprint) if `keystore_path` opens with `store_pass`,
+    otherwise returns ([], "").
+    """
+    code, out, _ = _run_keytool(["-list", "-v", "-keystore", keystore_path, "-storepass", store_pass])
+    if code != 0:
+        return ([], "")
+    aliases = re.findall(r"(?im)^Alias name:\s*(.+?)\s*$", out)
+    fp_match = re.search(r"(?im)SHA-?256:\s*([0-9A-Fa-f:]{40,})", out)
+    fingerprint = fp_match.group(1).upper() if fp_match else ""
+    return (aliases, fingerprint)
+
+
+def _extract_apk_signing_cert_sha256(apk_path: str) -> str:
+    """Extracts the signing certificate SHA-256 fingerprint from a built APK using keytool."""
+    code, out, _ = _run_keytool(["-printcert", "-jarfile", apk_path])
+    if code == 0:
+        m = re.search(r"(?im)SHA-?256:\s*([0-9A-Fa-f:]{40,})", out)
+        if m:
+            return m.group(1).upper()
+    return ""
+
+
+def configure_ci_signing_keystores(dry_run: bool = False) -> Dict[str, str]:
+    """
+    Authoritative CI keystore configurator that prevents 'package conflicts with an existing package':
+    1. Supports GitHub Secrets: KEYSTORE_BASE64, RELEASE_KEYSTORE_BASE64, DEBUG_KEYSTORE_BASE64.
+    2. Auto-detects whether the secret keystore is a Debug keystore (alias 'androiddebugkey' / pass 'android')
+       or a Release keystore (opened via STORE_PASSWORD / KEYSTORE_PASSWORD).
+       - If Debug keystore: writes it directly to `debug.keystore` so `debugConfig` signs with the exact
+         GitHub Secret certificate (never overwritten by an unrelated keystore).
+       - If Release keystore: writes it to `my-upload-key.jks`, defaults KEY_PASSWORD to STORE_PASSWORD,
+         and if its alias differs from 'upload' (required by app/build.gradle.kts), renames ONLY the alias
+         on the temporary CI copy so the private key & signing certificate SHA-256 remain 100% identical!
+    3. Fails fast if a GitHub Secret keystore is provided but cannot be opened (prevents silently shipping
+       an APK signed with a mismatched fallback key).
+    4. When no secret is provided, decodes repository `debug.keystore.base64` reliably into `debug.keystore`
+       so every debug build shares one consistent certificate.
+    """
+    result = {
+        "hasReleaseKeystore": "false",
+        "signingMode": "debug-repo",
+        "signingCertSha256": "",
+        "effectiveStorePassword": "",
+        "effectiveKeyPassword": "",
+    }
+
+    if dry_run:
+        return result
+
+    # 1. Always prepare repo debug.keystore baseline first (can be overridden below if secret is a debug keystore)
+    if os.path.exists("debug.keystore.base64"):
+        raw_b64 = Path("debug.keystore.base64").read_text(encoding="utf-8", errors="ignore")
+        if decode_base64_to_file(raw_b64, "debug.keystore", "debug.keystore.base64"):
+            _, repo_fp = _extract_keystore_info("debug.keystore", "android")
+            if repo_fp:
+                result["signingCertSha256"] = repo_fp
+                print(f"[ci_injector] Baseline debug.keystore ready (SHA-256: {repo_fp}).")
+
+    # 2. Check explicit DEBUG_KEYSTORE_BASE64 secret first (overrides debug.keystore directly)
+    debug_secret_b64 = os.environ.get("DEBUG_KEYSTORE_BASE64", "").strip()
+    if debug_secret_b64:
+        if not decode_base64_to_file(debug_secret_b64, "debug.keystore", "DEBUG_KEYSTORE_BASE64"):
+            raise RuntimeError("DEBUG_KEYSTORE_BASE64 secret could not be base64-decoded.")
+        aliases, fp = _extract_keystore_info("debug.keystore", "android")
+        if "androiddebugkey" not in [a.lower() for a in aliases]:
+            raise RuntimeError(
+                f"DEBUG_KEYSTORE_BASE64 did not open with password 'android' and alias 'androiddebugkey' (found aliases: {aliases})."
+            )
+        result["signingMode"] = "debug-secret"
+        result["signingCertSha256"] = fp
+        print(f"[ci_injector] Adopted DEBUG_KEYSTORE_BASE64 into debug.keystore (SHA-256: {fp}).")
+
+    # 3. Check KEYSTORE_BASE64 / RELEASE_KEYSTORE_BASE64 secret (or pre-existing my-upload-key.jks)
+    secret_b64 = (
+        os.environ.get("KEYSTORE_BASE64", "").strip()
+        or os.environ.get("RELEASE_KEYSTORE_BASE64", "").strip()
+    )
+    store_pass = (
+        os.environ.get("STORE_PASSWORD", "").strip()
+        or os.environ.get("KEYSTORE_PASSWORD", "").strip()
+    )
+    key_pass = os.environ.get("KEY_PASSWORD", "").strip() or store_pass
+    requested_alias = os.environ.get("KEY_ALIAS", "").strip()
+
+    target_release = "my-upload-key.jks"
+    has_secret_input = bool(secret_b64)
+    if secret_b64:
+        if not decode_base64_to_file(secret_b64, target_release, "KEYSTORE_BASE64"):
+            raise RuntimeError("KEYSTORE_BASE64 secret could not be base64-decoded. Check for truncation or invalid base64.")
+
+    if os.path.exists(target_release) and os.path.getsize(target_release) > 0:
+        # Case A: Try opening as a Release Keystore with STORE_PASSWORD (if provided)
+        if store_pass:
+            aliases, fp = _extract_keystore_info(target_release, store_pass)
+            if aliases:
+                # Special check: if user placed their debug.keystore in KEYSTORE_BASE64 with STORE_PASSWORD=android
+                # and alias=androiddebugkey, adopt it directly as debug.keystore so debugConfig signs identically!
+                alias_lower_map = {a.lower(): a for a in aliases}
+                if store_pass == "android" and "androiddebugkey" in alias_lower_map and requested_alias.lower() != "upload":
+                    shutil.copyfile(target_release, "debug.keystore")
+                    os.remove(target_release)
+                    result["hasReleaseKeystore"] = "false"
+                    result["signingMode"] = "debug-from-keystore-secret"
+                    result["signingCertSha256"] = fp
+                    print(
+                        f"[ci_injector] Detected debug keystore (alias 'androiddebugkey') inside KEYSTORE_BASE64; "
+                        f"adopted into debug.keystore (SHA-256: {fp}) for conflict-free upgrades."
+                    )
+                    return result
+
+                # Genuine release keystore: ensure alias matches 'upload' expected by app/build.gradle.kts
+                chosen_alias = (
+                    alias_lower_map.get(requested_alias.lower())
+                    if requested_alias
+                    else alias_lower_map.get("upload", aliases[0])
+                )
+                if not chosen_alias:
+                    chosen_alias = aliases[0]
+
+                if chosen_alias != "upload":
+                    rc, _, err = _run_keytool([
+                        "-changealias",
+                        "-keystore", target_release,
+                        "-alias", chosen_alias,
+                        "-destalias", "upload",
+                        "-storepass", store_pass,
+                        "-keypass", key_pass,
+                    ])
+                    if rc != 0:
+                        raise RuntimeError(
+                            f"KEYSTORE_BASE64 opened (alias '{chosen_alias}'), but aligning alias to 'upload' failed: {err.strip()}"
+                        )
+                    print(f"[ci_injector] Normalized CI temp keystore alias '{chosen_alias}' -> 'upload' (certificate unchanged).")
+
+                result["hasReleaseKeystore"] = "true"
+                result["signingMode"] = "release-secret"
+                result["signingCertSha256"] = fp
+                result["effectiveStorePassword"] = store_pass
+                result["effectiveKeyPassword"] = key_pass
+                print(f"[ci_injector] Verified release keystore (alias: upload, SHA-256: {fp}).")
+                return result
+
+        # Case B: User pasted debug.keystore.base64 into KEYSTORE_BASE64 without setting STORE_PASSWORD
+        dbg_aliases, dbg_fp = _extract_keystore_info(target_release, "android")
+        if "androiddebugkey" in [a.lower() for a in dbg_aliases]:
+            shutil.copyfile(target_release, "debug.keystore")
+            os.remove(target_release)
+            result["hasReleaseKeystore"] = "false"
+            result["signingMode"] = "debug-from-keystore-secret"
+            result["signingCertSha256"] = dbg_fp
+            print(
+                f"[ci_injector] Adopted debug keystore from KEYSTORE_BASE64 into debug.keystore "
+                f"(SHA-256: {dbg_fp}) so every build matches your existing installed package."
+            )
+            return result
+
+        # Case C: KEYSTORE_BASE64 was explicitly provided but failed to open -> FAIL FAST!
+        if has_secret_input:
+            raise RuntimeError(
+                "KEYSTORE_BASE64 was set in GitHub Secrets, but could not be opened with STORE_PASSWORD "
+                "or default debug password 'android'. Aborting build to avoid shipping an APK with a "
+                "mismatched signature (which causes 'package conflicts with an existing package')."
+            )
+
+    # 4. Ensure debug.keystore exists even if repo didn't have debug.keystore.base64 (last resort)
+    if not os.path.exists("debug.keystore"):
+        print("[ci_injector] Warning: No GitHub Secret keystore and no debug.keystore.base64 found; generating temporary debug.keystore.")
+        _run_keytool([
+            "-genkey", "-v", "-keystore", "debug.keystore",
+            "-storepass", "android", "-alias", "androiddebugkey", "-keypass", "android",
+            "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
+            "-dname", "CN=Android Debug,O=Android,C=US",
+        ])
+        _, gen_fp = _extract_keystore_info("debug.keystore", "android")
+        result["signingMode"] = "debug-generated"
+        result["signingCertSha256"] = gen_fp
+
+    return result
 
 
 def discover_and_adopt_gradle_modules(dry_run: bool = False) -> Dict[str, object]:
@@ -351,11 +532,13 @@ def write_github_env_and_outputs(
     version_name: str,
     version_code: int,
     manifest_path: str,
+    signing_info: Optional[Dict[str, str]] = None,
 ) -> None:
     app_module = str(gradle_info["appGradlePath"])
     app_dir = str(gradle_info["appModuleDir"])
     test_tasks = " ".join(gradle_info["testTasks"])  # type: ignore[arg-type]
     total_bsa_modules = sum(len(v) for v in inventory.values())
+    s_info = signing_info or {}
 
     pairs = {
         "APP_MODULE": app_module,
@@ -365,7 +548,14 @@ def write_github_env_and_outputs(
         "VERSION_CODE": str(version_code),
         "BSA_MODULE_COUNT": str(total_bsa_modules),
         "MODULE_MANIFEST_PATH": manifest_path,
+        "HAS_RELEASE_KEYSTORE": s_info.get("hasReleaseKeystore", "false"),
+        "SIGNING_MODE": s_info.get("signingMode", "debug-repo"),
+        "SIGNING_CERT_SHA256": s_info.get("signingCertSha256", ""),
     }
+    if s_info.get("effectiveStorePassword"):
+        pairs["EFFECTIVE_STORE_PASSWORD"] = s_info["effectiveStorePassword"]
+    if s_info.get("effectiveKeyPassword"):
+        pairs["EFFECTIVE_KEY_PASSWORD"] = s_info["effectiveKeyPassword"]
 
     gh_env = os.environ.get("GITHUB_ENV", "").strip()
     if gh_env:
@@ -377,6 +567,8 @@ def write_github_env_and_outputs(
     if gh_out:
         with open(gh_out, "a", encoding="utf-8") as f:
             for k, v in pairs.items():
+                if "PASSWORD" in k:
+                    continue
                 f.write(f"{k.lower()}={v}\n")
 
 
@@ -404,6 +596,10 @@ def generate_update_manifest_and_notes(
     digest_hex = sha256_hash.hexdigest()
     file_size = os.path.getsize(apk_path)
     apk_filename = os.path.basename(apk_path)
+    apk_signing_cert_sha256 = (
+        _extract_apk_signing_cert_sha256(apk_path)
+        or os.environ.get("SIGNING_CERT_SHA256", "").strip()
+    )
 
     tag = f"v{version_name}"
     apk_url = (
@@ -421,6 +617,7 @@ def generate_update_manifest_and_notes(
         "apkFileName": apk_filename,
         "apkUrl": apk_url,
         "sha256": digest_hex,
+        "signingCertSha256": apk_signing_cert_sha256,
         "fileSizeBytes": file_size,
         "releaseNotes": short_notes,
         "publishedAtUtc": published_utc,
@@ -447,17 +644,21 @@ def generate_update_manifest_and_notes(
             "",
             "### Package Verification",
             f"- **APK Artifact**: `{apk_filename}` ({file_size / (1024 * 1024):.2f} MB)",
-            f"- **SHA-256**: `{digest_hex}`",
+            f"- **APK SHA-256**: `{digest_hex}`",
+            f"- **Signing Cert SHA-256**: `{apk_signing_cert_sha256 or 'N/A'}`",
             f"- **Built At (UTC)**: `{published_utc}`",
             f"- **Detected Kotlin Modules**: {sum(len(v) for v in inventory.values())} files across `{', '.join(k for k, v in inventory.items() if v)}`",
             "",
-            "> Installed BSA-YourView apps will automatically detect this release via `update-manifest.json` and verify the SHA-256 checksum before updating in-app.",
+            "> Installed BSA-YourView apps will automatically detect this release via `update-manifest.json`, verify the SHA-256 checksum, install in-app, and reopen automatically.",
         ]
     )
     with open(notes_out, "w", encoding="utf-8") as f:
         f.write("\n".join(md_lines) + "\n")
 
-    print(f"[ci_injector] Generated {manifest_out} (SHA-256: {digest_hex[:12]}...) and {notes_out}.")
+    print(
+        f"[ci_injector] Generated {manifest_out} (APK SHA-256: {digest_hex[:12]}..., "
+        f"Signing Cert: {apk_signing_cert_sha256[:17] if apk_signing_cert_sha256 else 'N/A'}) and {notes_out}."
+    )
 
 
 def parse_args(argv: List[str]) -> argparse.Namespace:
@@ -501,10 +702,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 0
 
+    signing_info: Dict[str, str] = {}
     if not args.dry_run:
         ensure_env_file()
         inject_google_services(app_dir)
-        inject_release_keystore()
+        signing_info = configure_ci_signing_keystores(dry_run=False)
 
     checks = verify_critical_android_assets(app_dir)
     version_name, version_code, repo = read_and_sync_version_and_repo(
@@ -521,6 +723,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "versionName": version_name,
             "versionCode": version_code,
             "repository": repo,
+            "signingMode": signing_info.get("signingMode", ""),
+            "signingCertSha256": signing_info.get("signingCertSha256", ""),
             "gradle": gradle_info,
             "bsaModules": inventory,
             "resourceChecks": checks,
@@ -537,6 +741,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         version_name=version_name,
         version_code=version_code,
         manifest_path=module_manifest_path,
+        signing_info=signing_info,
     )
     return 0
 

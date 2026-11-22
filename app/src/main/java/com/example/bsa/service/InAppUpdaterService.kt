@@ -24,7 +24,8 @@ data class AppReleaseInfo(
     val sha256: String,
     val fileSizeBytes: Long,
     val releaseNotes: String,
-    val publishedAtUtc: String
+    val publishedAtUtc: String,
+    val signingCertSha256: String = ""
 )
 
 sealed interface UpdateCheckOutcome {
@@ -295,6 +296,49 @@ class InAppUpdaterService(
     fun consumeJustUpdatedVersion(context: Context): String? =
         InAppInstallSessionReceiver.consumeJustUpdatedVersion(context)
 
+    @Suppress("DEPRECATION")
+    fun getInstalledSigningCertSha256(context: Context): String {
+        return runCatching {
+            val pm = context.packageManager
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val info = pm.getPackageInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+                )
+                val signingInfo = info.signingInfo
+                when {
+                    signingInfo == null -> emptyArray()
+                    signingInfo.hasMultipleSigners() -> signingInfo.apkContentsSigners
+                    else -> signingInfo.signingCertificateHistory
+                }
+            } else {
+                val info = pm.getPackageInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.GET_SIGNATURES
+                )
+                info.signatures ?: emptyArray()
+            }
+            val certBytes = signatures.firstOrNull()?.toByteArray() ?: return ""
+            val digest = MessageDigest.getInstance("SHA-256").digest(certBytes)
+            digest.joinToString(":") { "%02X".format(it) }
+        }.getOrDefault("")
+    }
+
+    fun hasSigningCertificateConflict(context: Context, release: AppReleaseInfo): Boolean {
+        val installed = getInstalledSigningCertSha256(context)
+        return isCertificateMismatch(installed, release.signingCertSha256)
+    }
+
+    internal fun isCertificateMismatch(installedSha256: String, releaseSha256: String): Boolean {
+        val normInstalled = normalizeCertFingerprint(installedSha256)
+        val normRelease = normalizeCertFingerprint(releaseSha256)
+        if (normInstalled.isBlank() || normRelease.isBlank()) return false
+        return normInstalled != normRelease
+    }
+
+    internal fun normalizeCertFingerprint(raw: String): String =
+        raw.replace(":", "").replace(" ", "").trim().uppercase()
+
     internal fun parseManifestJson(rawJson: String): AppReleaseInfo? {
         return runCatching {
             val obj = JSONObject(rawJson)
@@ -310,7 +354,8 @@ class InAppUpdaterService(
                 sha256 = obj.optString("sha256", "").trim(),
                 fileSizeBytes = obj.optLong("fileSizeBytes", 0L),
                 releaseNotes = obj.optString("releaseNotes", "").trim(),
-                publishedAtUtc = obj.optString("publishedAtUtc", "").trim()
+                publishedAtUtc = obj.optString("publishedAtUtc", "").trim(),
+                signingCertSha256 = obj.optString("signingCertSha256", "").trim()
             )
         }.getOrNull()
     }

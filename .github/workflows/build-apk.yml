@@ -49,11 +49,17 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Run CI Injector (Auto-Adopt Modules, Secrets, Updater Config & Version)
+      - name: Run CI Injector (Auto-Adopt Modules, Keystore Secrets, Updater Config & Version)
         id: injector
         env:
           GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           INPUT_VERSION_NAME: ${{ github.event.inputs.version_name }}
         run: |
           if [ -f ci_injector.py ]; then
@@ -63,38 +69,6 @@ jobs:
             echo "APP_MODULE=:app" >> "$GITHUB_ENV"
             echo "APP_MODULE_DIR=app" >> "$GITHUB_ENV"
             echo "GRADLE_TEST_TASKS=:app:testDebugUnitTest" >> "$GITHUB_ENV"
-          fi
-
-      - name: Prepare debug & release signing keystores
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        run: |
-          # Ensure debug.keystore exists for debug builds, tests, or fallback tasks
-          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f debug.keystore ]; then
-            keytool -genkey -v -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
-          # Check if my-upload-key.jks was decoded by ci_injector.py or exists in repo
-          if [ -s my-upload-key.jks ]; then
-            ALIAS="${KEY_ALIAS:-upload}"
-            if [ -n "$STORE_PASSWORD" ] && keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias "$ALIAS" >/dev/null 2>&1; then
-              echo "Verified valid release keystore (alias: $ALIAS)."
-              echo "HAS_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
-            else
-              echo "Warning: my-upload-key.jks could not be opened with STORE_PASSWORD / alias '$ALIAS'. Falling back to debug build."
-              rm -f my-upload-key.jks
-              echo "HAS_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
-            fi
-          else
-            echo "No valid release keystore found. Falling back to debug build."
             echo "HAS_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
           fi
 
@@ -117,16 +91,17 @@ jobs:
       - name: Build Android APK
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ env.EFFECTIVE_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ env.EFFECTIVE_KEY_PASSWORD }}
+          KEY_ALIAS: upload
         run: |
           TARGET_MOD="${APP_MODULE:-:app}"
+          echo "Signing mode: ${SIGNING_MODE:-unknown} | Expected cert SHA-256: ${SIGNING_CERT_SHA256:-N/A}"
           if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
             echo "Building signed Release APK for $TARGET_MOD..."
             $GRADLE_CMD "${TARGET_MOD}:assembleRelease" --no-daemon --stacktrace
           else
-            echo "Building Debug APK for $TARGET_MOD..."
+            echo "Building signed Debug APK for $TARGET_MOD using adopted debug.keystore..."
             $GRADLE_CMD "${TARGET_MOD}:assembleDebug" --no-daemon --stacktrace
           fi
 
