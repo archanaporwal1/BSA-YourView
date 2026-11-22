@@ -3,19 +3,30 @@ name: Build BSA-YourView APK & Publish In-App Update
 on:
   push:
     branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Release version tag (e.g., 1.0.2). Leave empty to use app/build.gradle.kts versionName."
+        description: "Release version tag (e.g., 1.1.0). Leave empty to use app/build.gradle.kts versionName."
         required: false
         default: ""
+      skip_tests:
+        description: "Skip JVM unit tests before building APK"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: build-bsa-yourview-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-publish:
-    name: Build & Publish BSA-YourView APK
+    name: Build, Test & Publish BSA-YourView APK
     runs-on: ubuntu-latest
 
     steps:
@@ -38,15 +49,20 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Run CI Injector (Firebase, Keystore & Version Info)
+      - name: Run CI Injector (Auto-Adopt Modules, Secrets, Updater Config & Version)
+        id: injector
         env:
           GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          INPUT_VERSION_NAME: ${{ github.event.inputs.version_name }}
         run: |
           if [ -f ci_injector.py ]; then
-            python3 ci_injector.py
+            python3 ci_injector.py --ci
           else
-            echo "ci_injector.py not found, skipping."
+            echo "ci_injector.py not found, using default :app settings."
+            echo "APP_MODULE=:app" >> "$GITHUB_ENV"
+            echo "APP_MODULE_DIR=app" >> "$GITHUB_ENV"
+            echo "GRADLE_TEST_TASKS=:app:testDebugUnitTest" >> "$GITHUB_ENV"
           fi
 
       - name: Prepare debug & release signing keystores
@@ -56,7 +72,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          # Ensure debug.keystore exists for debug builds or fallback tasks
+          # Ensure debug.keystore exists for debug builds, tests, or fallback tasks
           if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           elif [ ! -f debug.keystore ]; then
@@ -92,6 +108,12 @@ jobs:
             echo "GRADLE_CMD=gradle" >> "$GITHUB_ENV"
           fi
 
+      - name: Run Automated Unit Tests across All Discovered Modules
+        if: ${{ github.event.inputs.skip_tests != 'true' && env.GRADLE_TEST_TASKS != '' }}
+        run: |
+          echo "Running unit tests for auto-adopted modules: $GRADLE_TEST_TASKS"
+          $GRADLE_CMD $GRADLE_TEST_TASKS --no-daemon --stacktrace
+
       - name: Build Android APK
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
@@ -99,37 +121,78 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
+          TARGET_MOD="${APP_MODULE:-:app}"
           if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
-            echo "Building signed Release APK..."
-            $GRADLE_CMD assembleRelease --no-daemon --stacktrace
+            echo "Building signed Release APK for $TARGET_MOD..."
+            $GRADLE_CMD "${TARGET_MOD}:assembleRelease" --no-daemon --stacktrace
           else
-            echo "Building Debug APK..."
-            $GRADLE_CMD assembleDebug --no-daemon --stacktrace
+            echo "Building Debug APK for $TARGET_MOD..."
+            $GRADLE_CMD "${TARGET_MOD}:assembleDebug" --no-daemon --stacktrace
           fi
 
-      - name: Locate built APK & extract metadata
+      - name: Package Branded APK & Generate SHA-256 Update Manifest
         id: apk_meta
         run: |
-          APK_PATH=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          APP_DIR="${APP_MODULE_DIR:-app}"
+          if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
+            APK_PATH=$(find "${APP_DIR}/build/outputs/apk/release" -type f -name "*.apk" 2>/dev/null | head -n 1)
+          else
+            APK_PATH=$(find "${APP_DIR}/build/outputs/apk/debug" -type f -name "*.apk" 2>/dev/null | head -n 1)
+          fi
           if [ -z "$APK_PATH" ]; then
-            echo "No APK file found!"
+            APK_PATH=$(find "${APP_DIR}/build/outputs/apk" -type f -name "*.apk" | head -n 1)
+          fi
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK file found in ${APP_DIR}/build/outputs/apk!"
             exit 1
           fi
-          echo "Found APK: $APK_PATH"
-          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
-          VERSION_NAME="${{ github.event.inputs.version_name }}"
-          if [ -z "$VERSION_NAME" ] && [ -f app/build.gradle.kts ]; then
-            VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          RESOLVED_VER="${VERSION_NAME:-${{ github.event.inputs.version_name }}}"
+          if [ -z "$RESOLVED_VER" ] && [ -f "${APP_DIR}/build.gradle.kts" ]; then
+            RESOLVED_VER=$(grep -E 'versionName\s*=' "${APP_DIR}/build.gradle.kts" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           fi
-          VERSION_NAME="${VERSION_NAME:-1.0.0}"
-          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          RESOLVED_VER="${RESOLVED_VER:-1.0.0}"
 
-      - name: Publish Release to GitHub
+          mkdir -p dist
+          BRANDED_APK="dist/BSA-YourView-v${RESOLVED_VER}.apk"
+          cp "$APK_PATH" "$BRANDED_APK"
+          echo "Packaged branded APK: $BRANDED_APK"
+
+          python3 ci_injector.py \
+            --generate-update-manifest \
+            --apk "$BRANDED_APK" \
+            --version-name "$RESOLVED_VER" \
+            --manifest-out "dist/update-manifest.json" \
+            --notes-out "dist/release-notes.md"
+
+          if [ -f build-module-manifest.json ]; then
+            cp build-module-manifest.json dist/build-module-manifest.json
+          fi
+
+          echo "apk_path=$BRANDED_APK" >> "$GITHUB_OUTPUT"
+          echo "version_name=$RESOLVED_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Build & Module Manifest Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BSA-YourView-v${{ steps.apk_meta.outputs.version_name }}
+          path: |
+            dist/BSA-YourView-v${{ steps.apk_meta.outputs.version_name }}.apk
+            dist/update-manifest.json
+            dist/build-module-manifest.json
+            dist/release-notes.md
+          retention-days: 30
+
+      - name: Publish Release & In-App Update Manifest to GitHub
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.apk_meta.outputs.version_name }}
           name: BSA-YourView v${{ steps.apk_meta.outputs.version_name }}
-          files: ${{ steps.apk_meta.outputs.apk_path }}
+          body_path: dist/release-notes.md
+          files: |
+            dist/BSA-YourView-v${{ steps.apk_meta.outputs.version_name }}.apk
+            dist/update-manifest.json
+            dist/build-module-manifest.json
           draft: false
           prerelease: false

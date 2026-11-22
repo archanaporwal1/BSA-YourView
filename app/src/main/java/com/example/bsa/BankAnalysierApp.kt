@@ -1,5 +1,8 @@
 package com.example.bsa
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -64,7 +67,7 @@ fun BankAnalysierApp(
         }
     }
 
-    // SAF CreateDocument for saving 11-Tab Excel Workbook (.xlsx)
+    // SAF CreateDocument for saving 18-Tab Excel Workbook (.xlsx)
     val excelSaveLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -72,6 +75,15 @@ fun BankAnalysierApp(
     ) { uri ->
         if (uri != null) {
             viewModel.exportActiveReportToUri(uri)
+        }
+    }
+
+    // SAF CreateDocument for saving branded Client PDF Summary (.pdf)
+    val pdfSummarySaveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        if (uri != null) {
+            viewModel.exportPdfSummaryToUri(uri)
         }
     }
 
@@ -83,11 +95,11 @@ fun BankAnalysierApp(
         canInstallPackages = viewModel.updaterService.canInstallPackagesInApp(context)
         val ready = uiState.updateState as? AppUpdateUiState.ReadyToInstall
         if (canInstallPackages && ready != null) {
-            context.startActivity(viewModel.updaterService.buildInAppInstallIntent(context, ready.apkFile))
+            viewModel.installDownloadedUpdate(ready.apkFile)
         }
     }
 
-    // Trigger Android ShareSheet via FileProvider when share file is ready
+    // Trigger Android ShareSheet via FileProvider when Excel or PDF share file is ready
     LaunchedEffect(uiState.pendingShareFile) {
         val file: File = uiState.pendingShareFile ?: return@LaunchedEffect
         try {
@@ -97,12 +109,12 @@ fun BankAnalysierApp(
                 file
             )
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                type = uiState.pendingShareMimeType
                 putExtra(Intent.EXTRA_STREAM, contentUri)
                 putExtra(Intent.EXTRA_SUBJECT, "BSA-YourView Underwriting Report (yourview.in)")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(shareIntent, "Share 11-Tab Excel Report"))
+            context.startActivity(Intent.createChooser(shareIntent, uiState.pendingShareTitle))
         } finally {
             viewModel.consumePendingShareFile()
         }
@@ -206,8 +218,22 @@ fun BankAnalysierApp(
                             when (uiState.activeDestination) {
                                 AppDestination.ANALYZE -> IntakeScreen(
                                     uiState = uiState,
-                                    onPickPdfs = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
+                                    onPickPdfsForSlot = { slot ->
+                                        viewModel.selectAccountSlot(slot)
+                                        pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                    },
                                     onLoadSamplePdfs = viewModel::loadSampleStatements,
+                                    onLoadMultiAccountPortfolio = viewModel::loadMultiAccountPortfolio,
+                                    onSelectAccountSlot = viewModel::selectAccountSlot,
+                                    onAddAccountSlot = viewModel::addAccountSlot,
+                                    onRenameAccountSlot = viewModel::renameAccountSlot,
+                                    onRemoveAccountSlot = viewModel::removeAccountSlot,
+                                    onClearAccountSlot = viewModel::clearAccountSlot,
+                                    onClearQueue = viewModel::clearQueue,
+                                    onAssignFileToSlot = viewModel::assignFileToAccountSlot,
+                                    onMoveFileInQueue = viewModel::moveFileInQueue,
+                                    onUnlockNextLocked = viewModel::unlockNextLockedFile,
+                                    onRetryFailed = viewModel::retryFailedFiles,
                                     onOpenPasswordPrompt = { fileId ->
                                         viewModel.openPasswordPrompt(fileId, resumeAnalysis = false)
                                     },
@@ -229,10 +255,36 @@ fun BankAnalysierApp(
                                     onSelectSubTab = viewModel::selectReportSubTab,
                                     onExportExcel = { excelSaveLauncher.launch(viewModel.defaultExportFilename()) },
                                     onShareExcel = viewModel::prepareShareExcel,
+                                    onExportPdfSummary = { pdfSummarySaveLauncher.launch(viewModel.defaultPdfSummaryFilename()) },
+                                    onSharePdfSummary = viewModel::prepareSharePdfSummary,
                                     onOpenExcelConfig = viewModel::openExcelConfig,
+                                    onCopyBrief = {
+                                        val brief = viewModel.buildExecutiveBriefText()
+                                        if (brief != null) {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            cm?.setPrimaryClip(ClipData.newPlainText("BSA-YourView Credit Brief", brief))
+                                            viewModel.notifyStatus("Executive Credit Brief copied to clipboard.")
+                                        }
+                                    },
+                                    onShareBrief = {
+                                        val brief = viewModel.buildExecutiveBriefText()
+                                        if (brief != null) {
+                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_SUBJECT, "BSA-YourView Credit Brief (${uiState.activeReport?.config?.applicantId.orEmpty()})")
+                                                putExtra(Intent.EXTRA_TEXT, brief)
+                                            }
+                                            context.startActivity(Intent.createChooser(shareIntent, "Share Credit Brief"))
+                                        }
+                                    },
                                     onApplyDateFilter = viewModel::applyDashboardDateFilter,
+                                    onApplyQuickDatePreset = viewModel::applyQuickDatePreset,
                                     onLedgerSearchChange = viewModel::updateLedgerSearch,
                                     onLedgerCategoryChange = viewModel::updateLedgerCategoryFilter,
+                                    onLedgerQuickFilterChange = viewModel::updateLedgerQuickFilter,
+                                    onLedgerSortOptionChange = viewModel::updateLedgerSortOption,
+                                    onOverrideTransactionCategory = viewModel::overrideTransactionCategory,
+                                    onUpdateCamProfile = viewModel::updateActiveCamProfile,
                                     onGoToAnalyze = { viewModel.selectDestination(AppDestination.ANALYZE) }
                                 )
 
@@ -291,7 +343,7 @@ fun BankAnalysierApp(
                     onInstallApk = { apkFile ->
                         canInstallPackages = viewModel.updaterService.canInstallPackagesInApp(context)
                         if (canInstallPackages) {
-                            context.startActivity(viewModel.updaterService.buildInAppInstallIntent(context, apkFile))
+                            viewModel.installDownloadedUpdate(apkFile)
                         } else {
                             installPermissionLauncher.launch(viewModel.updaterService.buildInstallPermissionIntent(context))
                         }

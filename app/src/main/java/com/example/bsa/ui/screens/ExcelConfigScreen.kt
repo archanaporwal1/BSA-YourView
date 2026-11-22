@@ -29,6 +29,8 @@ import com.example.R
 import com.example.bsa.model.ExcelDateFormat
 import com.example.bsa.model.ExcelExportConfig
 import com.example.bsa.ui.components.LedgerCard
+import com.example.bsa.ui.components.YourViewAccentButton
+import com.example.bsa.ui.components.YourViewOutlinedButton
 import com.example.bsa.ui.components.YvBrandEndorsementFooter
 import com.example.ui.theme.JetBrainsMono
 import com.example.ui.theme.SovereignNavy
@@ -127,7 +129,7 @@ fun ExcelConfigScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Applied across Summary metadata, Transactions, Top Credits, Top Debits, and Self Transfers in your 11-tab .xlsx workbook.",
+                    text = "Applied across Summary metadata, Transactions, Deep Analytics, and 18-tab .xlsx workbook sheets.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -271,7 +273,7 @@ fun ExcelConfigScreen(
                 ConfigSectionTitle(
                     icon = Icons.Filled.Functions,
                     title = "Workbook Structure & Formulas",
-                    badgeText = "All 11 Tabs"
+                    badgeText = "All 18 Tabs"
                 )
                 Spacer(Modifier.height(12.dp))
 
@@ -370,38 +372,26 @@ fun ExcelConfigScreen(
 
             // 6. Action Buttons
             if (hasActiveReport) {
-                Button(
+                YourViewAccentButton(
+                    text = stringResource(R.string.btn_export_customized_excel),
+                    icon = Icons.Filled.TableChart,
                     onClick = onExportNow,
                     enabled = !isExporting,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary,
-                        contentColor = MaterialTheme.colorScheme.onSecondary
-                    ),
+                    isLoading = isExporting,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
                         .testTag("excel_config_export_now")
-                ) {
-                    Icon(Icons.Filled.TableChart, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.btn_export_customized_excel),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                )
             }
 
-            OutlinedButton(
+            YourViewOutlinedButton(
+                text = if (hasActiveReport) "Save & Return to Dashboard" else "Save Configuration",
+                icon = Icons.Filled.Check,
                 onClick = onBack,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
                     .testTag("excel_config_done_button")
-            ) {
-                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (hasActiveReport) "Save & Return to Dashboard" else "Save Configuration")
-            }
+            )
 
             YvBrandEndorsementFooter()
         }

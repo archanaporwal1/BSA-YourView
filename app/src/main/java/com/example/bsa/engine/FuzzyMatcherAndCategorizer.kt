@@ -18,15 +18,49 @@ object FuzzyMatcherAndCategorizer {
         "TRADERS", "PVT", "LTD", "PRIVATE", "LIMITED", "LLP", "AND", "CO", "INDIA"
     )
 
+    val STANDARD_CATEGORIES: List<String> = listOf(
+        "Salary / Payroll",
+        "Home Loan",
+        "Loan",
+        "OD Interest / Servicing",
+        "Credit Card Payment",
+        "Reversal",
+        "Bank Charges",
+        "Cash Deposit",
+        "Cash Withdrawal",
+        "Interest",
+        "Insurance",
+        "Investment Expense",
+        "Utilities",
+        "Fuel",
+        "Food",
+        "Travel",
+        "Medical",
+        "Groceries",
+        "Household",
+        "Clothing",
+        "Vehicle",
+        "Personal Care",
+        "Logistics",
+        "Entertainment",
+        "Alcohol",
+        "Transfer from Self",
+        "Transfer To Self",
+        "Others"
+    )
+
     private val CATEGORY_RULES: List<Pair<String, Regex>> = listOf(
-        "Home Loan" to Regex("""\b(HOME\s*LOAN|HOUSING\s*LOAN|HDFC\s*LTD|LIC\s*HFL|LIC\s*HOUSING|PNB\s*HOUSING|GIC\s*HOUSING|ICICI\s*HFC|SBI\s*HOME|BAJAJ\s*HOUSING|AAVAS|HOMEFIRST)\b""", RegexOption.IGNORE_CASE),
+        "Home Loan" to Regex("""\b(HOME\s*LOAN|HOUSING\s*LOAN|HDFC\s*LTD|LIC\s*HFL|LIC\s*HOUSING|PNB\s*HOUSING|GIC\s*HOUSING|ICICI\s*HFC|SBI\s*HOME|BAJAJ\s*HOUSING|AAVAS|HOMEFIRST|CAN\s*FIN\s*HOMES|APTUS\s*VALUE|INDIABULLS\s*HOUSING)\b""", RegexOption.IGNORE_CASE),
         "OD Interest / Servicing" to Regex("""\b(OD\s*INT|CC\s*INT|INT\.?\s*SERVIC|OVERDRAFT\s*INT|PENAL\s*INT|LIMIT\s*RENEWAL|PROCESSING\s*FEE|INTEREST\s*RECOVER|DEBIT\s*INTEREST|INT\s*ON\s*OD|INT\s*CHRG)\b""", RegexOption.IGNORE_CASE),
-        "Loan" to Regex("""\b(EMI|ACH[-/\s]?DR|NACH[-/\s]?DR|ECS[-/\s]?DR|BAJAJ\s*FIN|TATA\s*CAP|CHOLAMANDALAM|MAHINDRA\s*FIN|SHRIRAM\s*FIN|HDB\s*FIN|MUTHOOT|MANAPPURAM|L&T\s*FIN|FULLERTON|SMFG|AUTO\s*LOAN|CAR\s*LOAN|BUSINESS\s*LOAN|PERSONAL\s*LOAN|LOAN\s*REPAY|KOTAK\s*PRIME|IDFC\s*FIRST\s*LOAN|HERO\s*FINCORP)\b""", RegexOption.IGNORE_CASE),
-        "Credit Card Payment" to Regex("""\b(CREDIT\s*CARD|CC\s*PAY|CRED\.?CLUB|CRED\s*PAY|BILLDESK.*CARD|AMEX|AMERICAN\s*EXPRESS|SBI\s*CARD|HDFC\s*CARD|ICICI\s*CARD|AXIS\s*CARD|AUTOPAY\s*CC)\b""", RegexOption.IGNORE_CASE),
-        "Reversal" to Regex("""\b(REVERSAL|REV[-/\s]|RETURN|BOUNCE|CHQ\s*RET|ECS\s*RET|NACH\s*RET|INSUFFICIENT\s*FUND|REFUND|FAILED\s*TXN|CHARGEBACK)\b""", RegexOption.IGNORE_CASE),
+        "Reversal" to Regex("""\b(REVERSAL|REV[-/\s]|RETURN|BOUNCE|CHQ\s*RET|CHQ\s*RTN|I/W\s*CHQ\s*RET|O/W\s*CHQ\s*RET|CLG\s*RET|ECS\s*RET|ECS\s*RTN|NACH\s*RET|NACH\s*RTN|ACH\s*RET|ACH\s*RTN|EMI\s*RET|EMI\s*RTN|EMI\s*BOUNCE|MANDATE\s*FAIL|AUTO\s*DEBIT\s*FAIL|SI\s*FAIL|INSUFFICIENT\s*FUND|REFUND|FAILED\s*TXN|CHARGEBACK|DISHONOUR|DISHONOR)\b""", RegexOption.IGNORE_CASE),
+        "Loan" to Regex("""\b(EMI|ACH[-/\s]?DR|NACH[-/\s]?DR|ECS[-/\s]?DR|BAJAJ\s*FIN|TATA\s*CAP|CHOLAMANDALAM|MAHINDRA\s*FIN|SHRIRAM\s*FIN|HDB\s*FIN|MUTHOOT|MANAPPURAM|L&T\s*FIN|FULLERTON|SMFG|AUTO\s*LOAN|CAR\s*LOAN|BUSINESS\s*LOAN|PERSONAL\s*LOAN|LOAN\s*REPAY|KOTAK\s*PRIME|IDFC\s*FIRST\s*LOAN|HERO\s*FINCORP|PIRAMAL\s*CAP|POONAWALLA|ADITYA\s*BIRLA\s*FIN|IIFL\s*FIN|SUNDARAM\s*FIN|NAVI\s*FIN|DMI\s*FIN|KREDITBEE|KISETSU)\b""", RegexOption.IGNORE_CASE),
+        "Credit Card Payment" to Regex("""\b(CREDIT\s*CARD|CC\s*PAY|CRED\.?CLUB|CRED\s*PAY|BILLDESK.*CARD|AMEX|AMERICAN\s*EXPRESS|SBI\s*CARD|HDFC\s*CARD|ICICI\s*CARD|AXIS\s*CARD|AUTOPAY\s*CC|ONECARD|RBL\s*CARD)\b""", RegexOption.IGNORE_CASE),
+        "Salary / Payroll" to Regex("""\b(SALARY|SAL\s*CR|PAYROLL|MONTHLY\s*SAL|STIPEND|WAGES|REMUNERATION)\b""", RegexOption.IGNORE_CASE),
+        "Bank Charges" to Regex("""\b(MIN\s*BAL\s*CHG|AMB\s*CHG|SMS\s*CHG|SMS\s*ALERT\s*CHG|ANNUAL\s*FEE|DEBIT\s*CARD\s*FEE|AMC\s*CHG|RTGS\s*CHG|NEFT\s*CHG|IMPS\s*CHG|CHQ\s*BOOK\s*CHG|PENAL\s*CHG|PENALTY\s*CHG|RETURN\s*CHG|BOUNCE\s*CHG|ECS\s*RTN\s*CHG|NACH\s*RTN\s*CHG|FOLIO\s*CHG|CONSOLIDATED\s*CHG)\b""", RegexOption.IGNORE_CASE),
         "Cash Withdrawal" to Regex("""\b(ATM\s*WDL|ATM[-/\s]CASH|NFS[-/\s]CASH|CASH\s*WDL|CASH\s*WITHDRAW|SELF\s*CHQ\s*CASH|CWDR|ATW)\b""", RegexOption.IGNORE_CASE),
         "Cash Deposit" to Regex("""\b(CASH\s*DEP|CDM\s*DEP|BY\s*CASH|BNA\s*DEP|CASH\s*RECYCLER|CDEP)\b""", RegexOption.IGNORE_CASE),
         "Interest" to Regex("""\b(INT\.?\s*PD|CREDIT\s*INTEREST|SB\s*INT|FD\s*INT|INTEREST\s*PAID|INTEREST\s*CREDIT|QUARTERLY\s*INT)\b""", RegexOption.IGNORE_CASE),
+        "Insurance" to Regex("""\b(LIC\s*OF\s*INDIA|HDFC\s*LIFE|ICICI\s*PRU|SBI\s*LIFE|MAX\s*LIFE|TATA\s*AIA|BAJAJ\s*ALLIANZ|STAR\s*HEALTH|NIVA\s*BUPA|CARE\s*HEALTH|NEW\s*INDIA\s*ASSUR|POLICYBAZAAR|INSURANCE\s*PREM)\b""", RegexOption.IGNORE_CASE),
         "Investment Expense" to Regex("""\b(ZERODHA|GROWW|UPSTOX|ANGEL\s*ONE|ICICI\s*DIRECT|HDFC\s*SEC|KOTAK\s*SEC|MUTUAL\s*FUND|SIP|CAMS|KFINTECH|PPF|NPS|SGB|BSE\s*STAR|NSE|INDIAN\s*CLEARING|ICCL|PAYTM\s*MONEY|KUVERA|COIN\s*BY)\b""", RegexOption.IGNORE_CASE),
         "Food" to Regex("""\b(SWIGGY|ZOMATO|DOMINOS|PIZZA\s*HUT|MCDONALDS|KFC|BURGER\s*KING|STARBUCKS|CAFE\s*COFFEE|HALDIRAM|BIKANERVALA|BARBEQUE|RESTAURANT|HOTEL\s*SARAVANA|BAKE|BAKERY|CHAI\s*POINT|EATSURE|FAASOS)\b""", RegexOption.IGNORE_CASE),
         "Fuel" to Regex("""\b(INDIAN\s*OIL|IOCL|HPCL|HINDUSTAN\s*PETRO|BPCL|BHARAT\s*PETRO|NAYARA|SHELL\s*INDIA|RELIANCE\s*BP|PETROL|DIESEL|FUEL|FILLING\s*STATION|HP\s*PAY|FASTAG)\b""", RegexOption.IGNORE_CASE),
@@ -112,9 +146,19 @@ object FuzzyMatcherAndCategorizer {
         fuzzyThreshold: Int = 82
     ): Boolean {
         val descUpper = description.uppercase(Locale.ROOT)
-        // Explicit self markers (excluding cash withdrawal by self cheque)
-        if ((descUpper.contains("SELF TRANSFER") || descUpper.contains("TRF TO SELF") || descUpper.contains("TRF FROM SELF") || descUpper.contains("OWN ACCOUNT"))
-            && !descUpper.contains("CASH")
+        // Explicit self / internal-account markers (excluding cash withdrawal by self cheque)
+        if ((descUpper.contains("SELF TRANSFER") ||
+                descUpper.contains("TRF TO SELF") ||
+                descUpper.contains("TRF FROM SELF") ||
+                descUpper.contains("OWN ACCOUNT") ||
+                descUpper.contains("OWN A/C") ||
+                descUpper.contains("INTERNAL CREDIT") ||
+                descUpper.contains("INTERNAL TRF") ||
+                descUpper.contains("INTER ACCOUNT") ||
+                descUpper.contains("SELF CREDIT") ||
+                descUpper.contains("SWEEP IN") ||
+                descUpper.contains("AUTO SWEEP")) &&
+            !descUpper.contains("CASH")
         ) {
             return true
         }
@@ -261,6 +305,45 @@ object FuzzyMatcherAndCategorizer {
             }
         }
         return ""
+    }
+
+    private val INTERNAL_CREDIT_REGEX = Regex(
+        """\b(SELF\s*TRANSFER|TRF\s*FROM\s*SELF|OWN\s*ACCOUNT|OWN\s*A/C|INTERNAL\s*CREDIT|INTERNAL\s*TRF|INTER\s*ACCOUNT|SELF\s*CREDIT|SWEEP\s*IN|AUTO\s*SWEEP|INTRA\s*BANK\s*SELF)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val CHEQUE_BOUNCE_REGEX = Regex(
+        """\b(I/W\s*CHQ\s*RET|O/W\s*CHQ\s*RET|CHQ\s*RET|CHQ\s*RTN|CHQ\s*BOUNCE|CHEQUE\s*BOUNCE|CHEQUE\s*RET|CLG\s*RET|INWARD\s*RET|CHEQUE\s*DISHON|CHQ\s*DISHON|RETURN\s*CHQ)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val EMI_RETURN_REGEX = Regex(
+        """\b(NACH\s*RET|NACH\s*RTN|NACH\s*BOUNCE|ECS\s*RET|ECS\s*RTN|ECS\s*BOUNCE|ACH\s*RET|ACH\s*RTN|ACH\s*BOUNCE|EMI\s*RET|EMI\s*RTN|EMI\s*BOUNCE|MANDATE\s*FAIL|AUTO\s*DEBIT\s*FAIL|SI\s*FAIL|LOAN\s*RETURN|EMI\s*UNPAID)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Identifies Internal / Self Credits (credits from own/linked accounts or internal sweeps). */
+    fun isInternalCredit(txn: BankTransaction): Boolean {
+        if (txn.amount <= 0.0) return false
+        return txn.isSelfTransfer ||
+            txn.category.equals("Transfer from Self", ignoreCase = true) ||
+            INTERNAL_CREDIT_REGEX.containsMatchIn(txn.description)
+    }
+
+    /** Identifies Cheque Bounce / Inward or Outward Cheque Return events. */
+    fun isChequeBounce(txn: BankTransaction): Boolean {
+        if (CHEQUE_BOUNCE_REGEX.containsMatchIn(txn.description)) return true
+        val u = txn.description.uppercase(Locale.ROOT)
+        return (u.contains("CHQ") || u.contains("CHEQUE")) &&
+            (u.contains("BOUNCE") || u.contains("INSUFFICIENT") || u.contains("DISHON") || u.contains("RETURN"))
+    }
+
+    /** Identifies EMI / NACH / ECS / ACH Mandate Return events. */
+    fun isEmiReturn(txn: BankTransaction): Boolean {
+        if (EMI_RETURN_REGEX.containsMatchIn(txn.description)) return true
+        val u = txn.description.uppercase(Locale.ROOT)
+        return (u.contains("NACH") || u.contains("ECS") || u.contains("ACH") || u.contains("EMI") || u.contains("LOAN")) &&
+            (u.contains("RTN") || u.contains("RET") || u.contains("BOUNCE") || u.contains("FAIL") || u.contains("INSUFFICIENT"))
     }
 
     private fun toTitleCase(input: String): String {

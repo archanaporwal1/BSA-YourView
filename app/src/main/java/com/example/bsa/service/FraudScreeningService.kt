@@ -155,10 +155,13 @@ class FraudScreeningService {
         )
     }
 
-    // 2. Suspicious RTGS Transactions < 2L (RBI mandates ₹2,00,000 minimum floor for RTGS)
+    // 2. Suspicious RTGS Transactions < 2L (RBI mandates ₹2,00,000 minimum floor for RTGS; excludes bank RTGS service charges/GST)
     private fun check2SuspiciousRtgsBelow2L(transactions: List<BankTransaction>): FraudIndicatorResult {
+        val rtgsChargeRegex = Regex("""\b(CHG|CHRG|CHARGE|CHARGES|FEE|FEES|GST|COMMISSION|COMM|SERVICE\s*TAX|REV|REVERSAL|REFUND)\b""", RegexOption.IGNORE_CASE)
         val rtgsUnder2L = transactions.filter {
-            it.description.contains("RTGS", ignoreCase = true) && abs(it.amount) < 200000.0
+            it.description.contains("RTGS", ignoreCase = true) &&
+                abs(it.amount) < 200000.0 &&
+                !rtgsChargeRegex.containsMatchIn(it.description)
         }
         return FraudIndicatorResult(
             itemNo = 2,
@@ -303,7 +306,7 @@ class FraudScreeningService {
     private fun check8IrregularInterestCharges(transactions: List<BankTransaction>): FraudIndicatorResult {
         val odIntTxns = transactions.filter { it.category == "OD Interest / Servicing" }
         val evidence = mutableListOf<String>()
-        odIntTxns.groupBy { it.dateIso.substring(0, 7) }.forEach { (mKey, list) ->
+        odIntTxns.filter { it.dateIso.length >= 10 }.groupBy { it.dateIso.substring(0, 7) }.forEach { (mKey, list) ->
             if (list.size > 1) {
                 evidence.add("${formatMonthLabel(mKey)}: ${list.size} separate interest debit charges posted")
             }
@@ -377,6 +380,7 @@ class FraudScreeningService {
         isoDate: String,
         extraBankHolidaysByIso: Map<String, String>
     ): String? {
+        if (isoDate.length < 10) return null
         extraBankHolidaysByIso[isoDate]?.let { return it }
         val mmDd = isoDate.substring(5, 10)
         if (mmDd in INDIAN_FIXED_BANK_HOLIDAYS) {

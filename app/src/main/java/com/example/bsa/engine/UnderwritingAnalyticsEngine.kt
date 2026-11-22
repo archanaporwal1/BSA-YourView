@@ -75,7 +75,11 @@ object UnderwritingAnalyticsEngine {
             explicitEndIso = endFilter,
             openingBalanceHint = priorBalanceBeforeFilter
         )
-        val chronologicalMonthKeys = dailyEodMap.keys.map { it.substring(0, 7) }.distinct().sorted()
+        val chronologicalMonthKeys = dailyEodMap.keys
+            .filter { it.length >= 7 }
+            .map { it.substring(0, 7) }
+            .distinct()
+            .sorted()
         val eodMatrixMonths = chronologicalMonthKeys.map { formatMonthLabel(it) }
 
         val eodMatrixByDay = linkedMapOf<Int, Map<String, Double?>>()
@@ -107,9 +111,9 @@ object UnderwritingAnalyticsEngine {
         // 3. Loan Track Matrix (EMI amounts as rows x Month/Year columns with payment dates)
         val loanTrack = buildLoanTrack(scopedTransactions)
 
-        // 4. Top 30 Credits, Top 30 Debits, Self Transfers, Grouped Parties
-        val topCredits = scopedTransactions.filter { it.amount > 0 }.sortedByDescending { it.amount }.take(30)
-        val topDebits = scopedTransactions.filter { it.amount < 0 }.sortedBy { it.amount }.take(30)
+        // 4. Top Credits & Top Debits (store up to 50 so Excel Top-50 setting works seamlessly), Self Transfers, Grouped Parties
+        val topCredits = scopedTransactions.filter { it.amount > 0 }.sortedByDescending { it.amount }.take(50)
+        val topDebits = scopedTransactions.filter { it.amount < 0 }.sortedBy { it.amount }.take(50)
         val selfTransfers = scopedTransactions.filter { it.isSelfTransfer }
         val groupedParties = buildGroupedParties(scopedTransactions)
 
@@ -184,7 +188,9 @@ object UnderwritingAnalyticsEngine {
             ?: 0.0
 
         val cursor = startCal.clone() as Calendar
-        while (!cursor.after(endCal)) {
+        var dayGuard = 0
+        val maxCalendarDays = 366 * 5 // Guard against malformed outlier year causing OOM
+        while (!cursor.after(endCal) && dayGuard < maxCalendarDays) {
             val iso = calendarToIso(cursor)
             val eodForDay = txnEodByDate[iso]
             if (eodForDay != null) {
@@ -192,6 +198,7 @@ object UnderwritingAnalyticsEngine {
             }
             result[iso] = runningBalance
             cursor.add(Calendar.DAY_OF_MONTH, 1)
+            dayGuard++
         }
         return result
     }
@@ -224,7 +231,8 @@ object UnderwritingAnalyticsEngine {
 
         val cashDepTxns = credits.filter { it.category == "Cash Deposit" }
         val cashWdlTxns = debits.filter { it.category == "Cash Withdrawal" }
-        val selfIn = credits.filter { it.isSelfTransfer }.sumOf { it.amount }
+        val internalCreditTxns = credits.filter { FuzzyMatcherAndCategorizer.isInternalCredit(it) }
+        val selfIn = internalCreditTxns.sumOf { it.amount }
         val selfOut = debits.filter { it.isSelfTransfer }.sumOf { -it.amount }
 
         val emiTxns = debits.filter { it.category == "Loan" || it.category == "Home Loan" }
@@ -232,6 +240,8 @@ object UnderwritingAnalyticsEngine {
         val interestEarned = credits.filter { it.category == "Interest" }.sumOf { it.amount }
         val odIntServicing = debits.filter { it.category == "OD Interest / Servicing" }.sumOf { -it.amount }
         val revTxns = monthTxns.filter { it.category == "Reversal" }
+        val chequeBounceTxns = monthTxns.filter { FuzzyMatcherAndCategorizer.isChequeBounce(it) }
+        val emiReturnTxns = monthTxns.filter { FuzzyMatcherAndCategorizer.isEmiReturn(it) }
 
         // OD/CC Utilization Analytics
         var overdrawnDays = 0
@@ -290,7 +300,13 @@ object UnderwritingAnalyticsEngine {
             avgOdUtilizationPct = avgUtilPct,
             highestOdUtilizationAmt = highestUtilAmt,
             highestOdUtilizationPct = highestUtilPct,
-            highestOdUtilizationDate = highestUtilDate
+            highestOdUtilizationDate = highestUtilDate,
+            internalCredits = selfIn,
+            internalCreditCount = internalCreditTxns.size,
+            chequeBounceAmount = chequeBounceTxns.sumOf { abs(it.amount) },
+            chequeBounceCount = chequeBounceTxns.size,
+            emiReturnAmount = emiReturnTxns.sumOf { abs(it.amount) },
+            emiReturnCount = emiReturnTxns.size
         )
     }
 
@@ -307,6 +323,7 @@ object UnderwritingAnalyticsEngine {
             val emiAmt = abs(representative.amount)
             val monthMap = linkedMapOf<String, String>()
             for (t in txns) {
+                if (t.dateIso.length < 7) continue
                 val mLabel = formatMonthLabel(t.dateIso.substring(0, 7))
                 monthMap[mLabel] = t.displayDate
             }

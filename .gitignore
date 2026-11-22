@@ -16,3 +16,8 @@
 local.properties
 .env
 debug.keystore
+dist/
+build-module-manifest.json
+update-manifest.json
+release-notes.md
+

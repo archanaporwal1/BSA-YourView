@@ -22,6 +22,10 @@ import com.example.bsa.model.AppSettings
 import com.example.bsa.model.ThemeMode
 import com.example.bsa.ui.AppUpdateUiState
 import com.example.bsa.ui.components.LedgerCard
+import com.example.bsa.ui.components.YourViewAccentButton
+import com.example.bsa.ui.components.YourViewDangerButton
+import com.example.bsa.ui.components.YourViewOutlinedButton
+import com.example.bsa.ui.components.YourViewSecondaryButton
 import com.example.ui.theme.JetBrainsMono
 import kotlin.math.roundToInt
 
@@ -158,7 +162,7 @@ fun SettingsScreen(
                 val activeCols = excelCfg.activeLedgerColumnHeaders().size
                 SectionHeading(
                     icon = Icons.Filled.TableChart,
-                    title = "11-Tab Excel Output Configuration"
+                    title = "18-Tab Excel Output Configuration"
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -182,22 +186,14 @@ fun SettingsScreen(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                FilledTonalButton(
+                YourViewSecondaryButton(
+                    text = "Configure Excel Columns & Date",
+                    icon = Icons.Filled.Tune,
                     onClick = onOpenExcelConfig,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
                         .testTag("settings_open_excel_config")
-                ) {
-                    Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "Configure Excel Columns & Date",
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                )
             }
 
             // 1c. Connectivity-Aware Online Hybrid Accuracy Boost
@@ -295,77 +291,50 @@ fun SettingsScreen(
                 Spacer(Modifier.height(10.dp))
                 when (updateState) {
                     is AppUpdateUiState.UpdateAvailable -> {
-                        Button(
+                        YourViewAccentButton(
+                            text = "Download & Install v${updateState.release.versionName}",
+                            icon = Icons.Filled.Download,
                             onClick = onOpenUpdateDialog,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondary,
-                                contentColor = MaterialTheme.colorScheme.onSecondary
-                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
                                 .testTag("settings_install_available_update")
-                        ) {
-                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "Download Update v${updateState.release.versionName}",
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        )
+                    }
+                    is AppUpdateUiState.Downloading -> {
+                        val pct = (updateState.progress * 100).toInt().coerceIn(0, 100)
+                        YourViewAccentButton(
+                            text = "Downloading Update ($pct%)…",
+                            icon = Icons.Filled.Downloading,
+                            onClick = onOpenUpdateDialog,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                     is AppUpdateUiState.ReadyToInstall -> {
-                        Button(
+                        YourViewAccentButton(
+                            text = "Install Update v${updateState.release.versionName}",
+                            icon = Icons.Filled.InstallMobile,
                             onClick = onOpenUpdateDialog,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondary,
-                                contentColor = MaterialTheme.colorScheme.onSecondary
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Filled.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "Install Update v${updateState.release.versionName}",
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    is AppUpdateUiState.Installing -> {
+                        YourViewAccentButton(
+                            text = "Installing v${updateState.release.versionName} (Auto-Reopen)…",
+                            icon = Icons.Filled.InstallMobile,
+                            onClick = onOpenUpdateDialog,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                     else -> {
-                        OutlinedButton(
+                        YourViewOutlinedButton(
+                            text = if (updateState is AppUpdateUiState.Checking) "Checking GitHub Releases..." else "Check for In-App Updates",
+                            icon = Icons.Filled.Refresh,
                             onClick = onCheckForUpdate,
-                            enabled = updateState !is AppUpdateUiState.Checking && updateState !is AppUpdateUiState.Downloading,
+                            enabled = updateState !is AppUpdateUiState.Checking,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
                                 .testTag("check_updates_button")
-                        ) {
-                            if (updateState is AppUpdateUiState.Checking) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "Checking GitHub Releases...",
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            } else {
-                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "Check for In-App Updates",
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
+                        )
                     }
                 }
                 if (updateState is AppUpdateUiState.UpToDate) {
@@ -478,35 +447,20 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "All parsed statements, fraud audits, and 11-tab Excel workbooks stay 100% on your device. Currently $savedCaseCount saved case(s) stored offline.",
+                    text = "All parsed statements, fraud audits, and 18-tab Excel workbooks stay 100% on your device. Currently $savedCaseCount saved case(s) stored offline.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(
+                YourViewDangerButton(
+                    text = "Clear Saved Cases ($savedCaseCount)",
+                    icon = Icons.Filled.DeleteSweep,
                     onClick = { showClearConfirm = true },
                     enabled = savedCaseCount > 0,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    border = BorderStroke(
-                        1.dp,
-                        if (savedCaseCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant
-                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
                         .testTag("clear_all_cases_button")
-                ) {
-                    Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "Clear Saved Cases ($savedCaseCount)",
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                )
             }
 
             // 4. Exclusive Brand Card (BSA-YourView / YourView / yourview.in)

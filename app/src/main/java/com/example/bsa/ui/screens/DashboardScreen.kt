@@ -28,11 +28,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.bsa.engine.CreditIntelligenceEngine
+import com.example.bsa.engine.DeepUnderwritingAnalytics
+import com.example.bsa.engine.PortfolioRiskEngine
 import com.example.bsa.model.*
 import com.example.bsa.ui.BsaUiState
+import com.example.bsa.ui.LedgerQuickFilter
+import com.example.bsa.ui.LedgerSortOption
 import com.example.bsa.ui.ReportSubTab
 import com.example.bsa.ui.components.*
 import com.example.ui.theme.JetBrainsMono
+import kotlin.math.abs
 
 @Composable
 fun DashboardScreen(
@@ -40,10 +46,19 @@ fun DashboardScreen(
     onSelectSubTab: (ReportSubTab) -> Unit,
     onExportExcel: () -> Unit,
     onShareExcel: () -> Unit,
+    onExportPdfSummary: () -> Unit = {},
+    onSharePdfSummary: () -> Unit = {},
     onOpenExcelConfig: () -> Unit,
+    onCopyBrief: () -> Unit,
+    onShareBrief: () -> Unit,
     onApplyDateFilter: (String?, String?) -> Unit,
+    onApplyQuickDatePreset: (Int?) -> Unit,
     onLedgerSearchChange: (String) -> Unit,
     onLedgerCategoryChange: (String) -> Unit,
+    onLedgerQuickFilterChange: (LedgerQuickFilter) -> Unit,
+    onLedgerSortOptionChange: (LedgerSortOption) -> Unit,
+    onOverrideTransactionCategory: (BankTransaction, String) -> Unit,
+    onUpdateCamProfile: ((UnderwriterCamProfile) -> UnderwriterCamProfile) -> Unit,
     onGoToAnalyze: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -72,19 +87,26 @@ fun DashboardScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Button(
+                    YourViewPrimaryButton(
+                        text = "Go to Statement Intake",
+                        icon = Icons.Filled.UploadFile,
                         onClick = onGoToAnalyze,
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(Icons.Filled.UploadFile, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Go to Statement Intake")
-                    }
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     YvBrandEndorsementFooter()
                 }
             }
         }
         return
+    }
+
+    val creditIntel = remember(report) { CreditIntelligenceEngine.evaluate(report) }
+    val deepAnalytics = remember(report) { DeepUnderwritingAnalytics.analyze(report) }
+    val portfolioRisk = remember(report, creditIntel) { PortfolioRiskEngine.evaluate(report, creditIntel) }
+    var inspectedTxn by remember { mutableStateOf<BankTransaction?>(null) }
+    var activeTooltip by remember { mutableStateOf<MetricTooltipContent?>(null) }
+    var simulatorProductType by remember(report.reportId, report.config.productType) {
+        mutableStateOf(report.config.productType)
     }
 
     val categories = remember(report.transactions) {
@@ -94,24 +116,63 @@ fun DashboardScreen(
     val filteredTransactions by remember(
         report.transactions,
         uiState.ledgerSearchQuery,
-        uiState.ledgerCategoryFilter
+        uiState.ledgerCategoryFilter,
+        uiState.ledgerQuickFilter,
+        uiState.ledgerSortOption
     ) {
         derivedStateOf {
-            report.transactions.filter { t ->
+            val baseFiltered = report.transactions.filter { t ->
                 val matchesCat = when (uiState.ledgerCategoryFilter) {
                     "All" -> true
                     "Self Transfers" -> t.isSelfTransfer
                     else -> t.category == uiState.ledgerCategoryFilter
+                }
+                val matchesQuick = when (uiState.ledgerQuickFilter) {
+                    LedgerQuickFilter.ALL -> true
+                    LedgerQuickFilter.HIGH_VALUE -> abs(t.amount) >= 100000.0
+                    LedgerQuickFilter.BOUNCES -> t.category == "Reversal" ||
+                        t.category == "Bank Charges" ||
+                        t.description.contains("BOUNCE", ignoreCase = true) ||
+                        t.description.contains("RTN", ignoreCase = true) ||
+                        t.description.contains("RET", ignoreCase = true)
+                    LedgerQuickFilter.CASH -> t.category == "Cash Deposit" || t.category == "Cash Withdrawal"
+                    LedgerQuickFilter.SELF_TRANSFERS -> t.isSelfTransfer
+                    LedgerQuickFilter.MISMATCHES -> t.hasBalanceMismatch
                 }
                 val q = uiState.ledgerSearchQuery.trim()
                 val matchesQuery = q.isBlank() ||
                     t.description.contains(q, ignoreCase = true) ||
                     t.category.contains(q, ignoreCase = true) ||
                     t.partyName.contains(q, ignoreCase = true) ||
-                    t.displayDate.contains(q, ignoreCase = true)
-                matchesCat && matchesQuery
+                    t.displayDate.contains(q, ignoreCase = true) ||
+                    t.chequeNo.contains(q, ignoreCase = true)
+                matchesCat && matchesQuick && matchesQuery
+            }
+            when (uiState.ledgerSortOption) {
+                LedgerSortOption.DATE_ASC -> baseFiltered
+                LedgerSortOption.DATE_DESC -> baseFiltered.reversed()
+                LedgerSortOption.AMOUNT_DESC -> baseFiltered.sortedByDescending { abs(it.amount) }
+                LedgerSortOption.CREDITS_FIRST -> baseFiltered.sortedByDescending { it.amount }
+                LedgerSortOption.DEBITS_FIRST -> baseFiltered.sortedBy { it.amount }
             }
         }
+    }
+
+    inspectedTxn?.let { activeTxn ->
+        TransactionInspectorDialog(
+            txn = activeTxn,
+            onSelectCategory = { newCat ->
+                onOverrideTransactionCategory(activeTxn, newCat)
+            },
+            onDismiss = { inspectedTxn = null }
+        )
+    }
+
+    activeTooltip?.let { tooltipContent ->
+        YourViewTooltipDialog(
+            content = tooltipContent,
+            onDismiss = { activeTooltip = null }
+        )
     }
 
     LazyColumn(
@@ -147,47 +208,103 @@ fun DashboardScreen(
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(
-                        onClick = onExportExcel,
-                        enabled = !uiState.isExporting,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("export_excel_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary,
-                            contentColor = MaterialTheme.colorScheme.onSecondary
-                        )
-                    ) {
-                        Icon(Icons.Filled.TableChart, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (uiState.isExporting) "Building .xlsx..." else stringResource(R.string.btn_export_excel),
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = onShareExcel,
-                        enabled = !uiState.isExporting,
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .height(48.dp)
-                            .testTag("share_excel_button")
-                    ) {
-                        Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.btn_share_excel),
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    if (maxWidth >= 380.dp) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                YourViewAccentButton(
+                                    text = if (uiState.isExporting) "Building..." else stringResource(R.string.btn_export_excel),
+                                    icon = Icons.Filled.TableChart,
+                                    onClick = onExportExcel,
+                                    enabled = !uiState.isExporting,
+                                    isLoading = uiState.isExporting,
+                                    modifier = Modifier
+                                        .weight(1.35f)
+                                        .testTag("export_excel_button")
+                                )
+                                YourViewOutlinedButton(
+                                    text = stringResource(R.string.btn_share_excel),
+                                    icon = Icons.Filled.Share,
+                                    onClick = onShareExcel,
+                                    enabled = !uiState.isExporting,
+                                    modifier = Modifier
+                                        .weight(0.65f)
+                                        .testTag("share_excel_button")
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                YourViewPrimaryButton(
+                                    text = stringResource(R.string.btn_export_pdf),
+                                    icon = Icons.Filled.PictureAsPdf,
+                                    onClick = onExportPdfSummary,
+                                    enabled = !uiState.isExporting,
+                                    modifier = Modifier
+                                        .weight(1.35f)
+                                        .testTag("export_pdf_summary_button")
+                                )
+                                YourViewSecondaryButton(
+                                    text = stringResource(R.string.btn_share_pdf),
+                                    icon = Icons.Filled.IosShare,
+                                    onClick = onSharePdfSummary,
+                                    enabled = !uiState.isExporting,
+                                    modifier = Modifier
+                                        .weight(0.65f)
+                                        .testTag("share_pdf_summary_button")
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            YourViewAccentButton(
+                                text = if (uiState.isExporting) "Building..." else stringResource(R.string.btn_export_excel),
+                                icon = Icons.Filled.TableChart,
+                                onClick = onExportExcel,
+                                enabled = !uiState.isExporting,
+                                isLoading = uiState.isExporting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("export_excel_button")
+                            )
+                            YourViewOutlinedButton(
+                                text = stringResource(R.string.btn_share_excel),
+                                icon = Icons.Filled.Share,
+                                onClick = onShareExcel,
+                                enabled = !uiState.isExporting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("share_excel_button")
+                            )
+                            YourViewPrimaryButton(
+                                text = stringResource(R.string.btn_export_pdf),
+                                icon = Icons.Filled.PictureAsPdf,
+                                onClick = onExportPdfSummary,
+                                enabled = !uiState.isExporting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("export_pdf_summary_button")
+                            )
+                            YourViewSecondaryButton(
+                                text = stringResource(R.string.btn_share_pdf),
+                                icon = Icons.Filled.IosShare,
+                                onClick = onSharePdfSummary,
+                                enabled = !uiState.isExporting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("share_pdf_summary_button")
+                            )
+                        }
                     }
                 }
 
@@ -259,11 +376,12 @@ fun DashboardScreen(
             }
         }
 
-        // 1a. Color-Coded 10-Point Risk Score Summary Card
+        // 1a. Color-Coded 10-Point Risk Score Summary Card (with interactive weighting tooltip)
         item {
             RiskScoreSummaryCard(
                 indicators = report.fraudIndicators,
-                onInspectTriggers = { onSelectSubTab(ReportSubTab.FRAUD) }
+                onInspectTriggers = { onSelectSubTab(ReportSubTab.FRAUD) },
+                onExplainScore = { activeTooltip = UnderwritingTooltips.riskScore(report) }
             )
         }
 
@@ -301,11 +419,40 @@ fun DashboardScreen(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Output & 11-tab Excel cover strictly: ${report.metadata.statementPeriod}",
+                    text = "Output & 18-tab Excel cover strictly: ${report.metadata.statementPeriod}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isAllActive = report.config.filterStartDateIso == null && report.config.filterEndDateIso == null
+                    FilterChip(
+                        selected = isAllActive,
+                        onClick = { onApplyQuickDatePreset(null) },
+                        label = { Text("All", maxLines = 1, softWrap = false) }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = { onApplyQuickDatePreset(30) },
+                        label = { Text("Last 30D", maxLines = 1, softWrap = false) }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = { onApplyQuickDatePreset(90) },
+                        label = { Text("Last 3M", maxLines = 1, softWrap = false) }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = { onApplyQuickDatePreset(180) },
+                        label = { Text("Last 6M", maxLines = 1, softWrap = false) }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
                 DateRangePickerRow(
                     startDateIso = report.config.filterStartDateIso,
                     endDateIso = report.config.filterEndDateIso,
@@ -322,7 +469,7 @@ fun DashboardScreen(
             }
         }
 
-        // 2. Executive KPI Strip
+        // 2. Executive KPI Strip (tap any metric tile for interactive formula & logic explanation)
         item {
             Row(
                 modifier = Modifier
@@ -333,34 +480,60 @@ fun DashboardScreen(
                 KpiMetricTile(
                     label = "Total Credits",
                     value = BsaFormatters.formatCurrency(report.totalInflow, useCompact),
-                    subtitle = "${report.transactions.count { it.amount > 0 }} inflows",
-                    accentColor = MaterialTheme.colorScheme.secondary
+                    subtitle = "${report.transactions.count { it.amount > 0 }} inflows • Tap info",
+                    accentColor = MaterialTheme.colorScheme.secondary,
+                    onInfoClick = { activeTooltip = UnderwritingTooltips.kpiTooltip("credits", report) }
                 )
                 KpiMetricTile(
                     label = "Total Debits",
                     value = BsaFormatters.formatCurrency(report.totalOutflow, useCompact),
-                    subtitle = "${report.transactions.count { it.amount < 0 }} outflows",
-                    accentColor = MaterialTheme.colorScheme.error
+                    subtitle = "${report.transactions.count { it.amount < 0 }} outflows • Tap info",
+                    accentColor = MaterialTheme.colorScheme.error,
+                    onInfoClick = { activeTooltip = UnderwritingTooltips.kpiTooltip("debits", report) }
                 )
                 KpiMetricTile(
                     label = "Avg EOD Balance",
                     value = BsaFormatters.formatCurrency(report.averageMonthlyBalance, useCompact),
-                    subtitle = "${report.monthlyMetrics.size} month(s)",
-                    accentColor = MaterialTheme.colorScheme.primary
+                    subtitle = "${report.monthlyMetrics.size} month(s) • Tap info",
+                    accentColor = MaterialTheme.colorScheme.primary,
+                    onInfoClick = { activeTooltip = UnderwritingTooltips.kpiTooltip("abb", report) }
                 )
                 if (report.config.facilityType != FacilityType.NONE) {
                     KpiMetricTile(
                         label = "Peak OD Util",
                         value = BsaFormatters.formatPercent(report.peakOdUtilizationPct),
                         subtitle = "${BsaFormatters.formatCurrency(report.peakOdUtilizationAmt, useCompact)} on ${report.peakOdUtilizationDate}",
-                        accentColor = if (report.peakOdUtilizationPct >= 90.0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary
+                        accentColor = if (report.peakOdUtilizationPct >= 90.0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
+                        onInfoClick = { activeTooltip = UnderwritingTooltips.kpiTooltip("od", report) }
                     )
                 }
+                KpiMetricTile(
+                    label = "Internal Credits",
+                    value = BsaFormatters.formatCurrency(report.totalInternalCredits, useCompact),
+                    subtitle = "${report.totalInternalCreditCount} self/internal • Tap info",
+                    accentColor = MaterialTheme.colorScheme.primary,
+                    onInfoClick = { activeTooltip = UnderwritingTooltips.kpiTooltip("internal", report) }
+                )
+                KpiMetricTile(
+                    label = "Cheque Bounces",
+                    value = "${report.totalChequeBounceCount}",
+                    subtitle = BsaFormatters.formatCurrency(report.totalChequeBounceAmount, useCompact),
+                    accentColor = if (report.totalChequeBounceCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+                    onInfoClick = { activeTooltip = UnderwritingTooltips.kpiTooltip("cheque_bounce", report) }
+                )
+                KpiMetricTile(
+                    label = "EMI Returns",
+                    value = "${report.totalEmiReturnCount}",
+                    subtitle = BsaFormatters.formatCurrency(report.totalEmiReturnAmount, useCompact),
+                    accentColor = if (report.totalEmiReturnCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+                    onInfoClick = { activeTooltip = UnderwritingTooltips.kpiTooltip("emi_return", report) }
+                )
                 KpiMetricTile(
                     label = "Fraud / Behav Flags",
                     value = "${report.flaggedFraudCount} / 10",
                     subtitle = "EMI Total ${BsaFormatters.formatCurrency(report.totalEmiOutflow, useCompact)}",
-                    accentColor = if (report.flaggedFraudCount > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary
+                    accentColor = if (report.flaggedFraudCount > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary,
+                    onInfoClick = { activeTooltip = UnderwritingTooltips.riskScore(report) }
                 )
             }
         }
@@ -369,7 +542,7 @@ fun DashboardScreen(
         item {
             ScrollableTabRow(
                 selectedTabIndex = ReportSubTab.entries.indexOf(uiState.activeReportTab),
-                edgePadding = 0.dp,
+                edgePadding = 12.dp,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary
             ) {
@@ -380,7 +553,10 @@ fun DashboardScreen(
                         text = {
                             Text(
                                 text = tab.label,
-                                fontWeight = if (uiState.activeReportTab == tab) FontWeight.Bold else FontWeight.Medium
+                                fontWeight = if (uiState.activeReportTab == tab) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     )
@@ -391,11 +567,98 @@ fun DashboardScreen(
         // 4. Sub-Tab Content
         when (uiState.activeReportTab) {
             ReportSubTab.OVERVIEW -> {
+                item {
+                    ConsolidatedPortfolioRiskCard(
+                        portfolio = portfolioRisk,
+                        intel = creditIntel,
+                        useCompactCurrency = useCompact,
+                        onShowTooltip = { activeTooltip = it }
+                    )
+                }
+                item {
+                    CreditIntelligenceCard(
+                        report = report,
+                        intel = creditIntel,
+                        useCompactCurrency = useCompact,
+                        onCopyBrief = onCopyBrief,
+                        onShareBrief = onShareBrief,
+                        onOpenSimulator = {
+                            simulatorProductType = report.config.productType
+                            onSelectSubTab(ReportSubTab.PARTIES)
+                        },
+                        onExplainHealthScore = {
+                            activeTooltip = UnderwritingTooltips.creditHealth(creditIntel)
+                        }
+                    )
+                }
+                item {
+                    SegmentEligibilityMatrixCard(
+                        report = report,
+                        intel = creditIntel,
+                        useCompactCurrency = useCompact,
+                        onSimulateSegment = { chosenSegment ->
+                            simulatorProductType = chosenSegment
+                            onSelectSubTab(ReportSubTab.PARTIES)
+                        },
+                        onExplainEligibility = { seg ->
+                            activeTooltip = UnderwritingTooltips.segmentEligibility(seg)
+                        }
+                    )
+                }
+                item {
+                    QuickMetricsEligibilityCalculatorCard(
+                        report = report,
+                        useCompactCurrency = useCompact
+                    )
+                }
                 item { OnlineEnrichmentSummaryCard(report.onlineEnrichment) }
                 item { ForensicAuditAccordionCard(report) }
                 item { MonthlyCashFlowChartCard(report) }
                 items(report.monthlyMetrics, key = { it.monthKey }) { month ->
                     MonthlyDetailCard(month = month, isOdFacility = report.config.facilityType != FacilityType.NONE)
+                }
+            }
+
+            ReportSubTab.UNDERWRITER_CAM -> {
+                item {
+                    UnderwriterCam360Workbench(
+                        report = report,
+                        intel = creditIntel,
+                        deep = deepAnalytics,
+                        camProfile = uiState.activeCamProfile,
+                        useCompactCurrency = useCompact,
+                        onUpdateCam = onUpdateCamProfile,
+                        onCopyBrief = onCopyBrief,
+                        onExportExcel = onExportExcel
+                    )
+                }
+            }
+
+            ReportSubTab.DEEP_ANALYTICS -> {
+                item {
+                    InternalCreditsContraCard(
+                        data = deepAnalytics.internalTransfers,
+                        useCompactCurrency = useCompact
+                    )
+                }
+                item {
+                    BouncesEmiDeepDiveCard(
+                        data = deepAnalytics.bounces,
+                        useCompactCurrency = useCompact
+                    )
+                }
+                item {
+                    ChannelAndCashMixCard(
+                        data = deepAnalytics.channelsAndCash,
+                        useCompactCurrency = useCompact
+                    )
+                }
+                item {
+                    ConcentrationAndStatutoryCard(
+                        concentration = deepAnalytics.concentration,
+                        statutory = deepAnalytics.statutory,
+                        useCompactCurrency = useCompact
+                    )
                 }
             }
 
@@ -418,7 +681,7 @@ fun DashboardScreen(
                         OutlinedTextField(
                             value = uiState.ledgerSearchQuery,
                             onValueChange = onLedgerSearchChange,
-                            placeholder = { Text("Search narration, date, party, or category...") },
+                            placeholder = { Text("Search narration, date, cheque, party, or category...") },
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                             trailingIcon = {
                                 if (uiState.ledgerSearchQuery.isNotEmpty()) {
@@ -431,6 +694,46 @@ fun DashboardScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(Modifier.height(10.dp))
+                        // Smart Quick-Triage Filters
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            LedgerQuickFilter.entries.forEach { qf ->
+                                FilterChip(
+                                    selected = uiState.ledgerQuickFilter == qf,
+                                    onClick = { onLedgerQuickFilterChange(qf) },
+                                    label = { Text(qf.label, maxLines = 1, softWrap = false) }
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        // Sort Order Strip
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Sort,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            LedgerSortOption.entries.forEach { sortOpt ->
+                                FilterChip(
+                                    selected = uiState.ledgerSortOption == sortOpt,
+                                    onClick = { onLedgerSortOptionChange(sortOpt) },
+                                    label = { Text(sortOpt.label, maxLines = 1, softWrap = false) }
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        // Category Filter Strip
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -441,24 +744,35 @@ fun DashboardScreen(
                                 FilterChip(
                                     selected = uiState.ledgerCategoryFilter == cat,
                                     onClick = { onLedgerCategoryChange(cat) },
-                                    label = { Text(cat) }
+                                    label = { Text(cat, maxLines = 1, softWrap = false) }
                                 )
                             }
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "Showing ${filteredTransactions.size} of ${report.transactions.size} deduplicated rows",
+                            text = "Showing ${filteredTransactions.size} of ${report.transactions.size} rows • Tap any row to inspect or reclassify",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
                 items(filteredTransactions, key = { it.slNo }) { txn ->
-                    TransactionRowCard(txn)
+                    TransactionRowCard(
+                        txn = txn,
+                        onClick = { inspectedTxn = txn }
+                    )
                 }
             }
 
             ReportSubTab.PARTIES -> {
+                item {
+                    WhatIfLoanCalculatorCard(
+                        intel = creditIntel,
+                        useCompactCurrency = useCompact,
+                        selectedProductType = simulatorProductType,
+                        onSelectProductType = { simulatorProductType = it }
+                    )
+                }
                 item { LoanTrackSectionCard(report) }
                 item {
                     Text(
@@ -492,7 +806,7 @@ private fun ForensicAuditAccordionCard(report: AnalysisReport) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Forensic ePDF Verification Audit (${report.fileAudits.size} file)",
+                    text = "Forensic ePDF Verification Audit (${report.fileAudits.size} ${if (report.fileAudits.size == 1) "file" else "files"})",
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
@@ -708,19 +1022,94 @@ private fun MonthlyDetailCard(month: MonthlyMetric, isOdFacility: Boolean) {
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Credits (${month.creditCount})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(BsaFormatters.formatInr(month.totalCredits), fontFamily = JetBrainsMono, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Credits (${month.creditCount})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(BsaFormatters.formatInr(month.totalCredits), fontFamily = JetBrainsMono, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
         }
         Spacer(Modifier.height(4.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Debits (${month.debitCount})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(BsaFormatters.formatInr(month.totalDebits), fontFamily = JetBrainsMono, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Debits (${month.debitCount})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(BsaFormatters.formatInr(month.totalDebits), fontFamily = JetBrainsMono, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
         }
         Spacer(Modifier.height(4.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("EMI / Loan Outflow (${month.emiLoanCount})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(BsaFormatters.formatInr(month.emiLoanOutflow), fontFamily = JetBrainsMono, fontSize = 12.5.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "EMI / Loan Outflow (${month.emiLoanCount})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(BsaFormatters.formatInr(month.emiLoanOutflow), fontFamily = JetBrainsMono, fontSize = 12.5.sp, maxLines = 1, softWrap = false)
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Internal Credits (${month.internalCreditCount})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(BsaFormatters.formatInr(month.internalCredits), fontFamily = JetBrainsMono, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.primary, maxLines = 1, softWrap = false)
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Cheque Bounces (${month.chequeBounceCount}) • EMI Returns (${month.emiReturnCount})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            val totalBounceAmt = month.chequeBounceAmount + month.emiReturnAmount
+            val hasBounce = (month.chequeBounceCount + month.emiReturnCount) > 0
+            Text(
+                text = if (hasBounce) BsaFormatters.formatInr(totalBounceAmt) else "Clean",
+                fontFamily = JetBrainsMono,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (hasBounce) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                softWrap = false
+            )
         }
 
         if (isOdFacility) {
@@ -735,14 +1124,26 @@ private fun MonthlyDetailCard(month: MonthlyMetric, isOdFacility: Boolean) {
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("OD Utilization (Peak / Avg)", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "OD Utilization (Peak / Avg)",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         Text(
                             "${BsaFormatters.formatPercent(month.highestOdUtilizationPct)} / ${BsaFormatters.formatPercent(month.avgOdUtilizationPct)}",
                             fontFamily = JetBrainsMono,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                     LinearProgressIndicator(
@@ -840,8 +1241,14 @@ private fun FraudIndicatorCard(ind: FraudIndicatorResult) {
 }
 
 @Composable
-private fun TransactionRowCard(txn: BankTransaction) {
+private fun TransactionRowCard(
+    txn: BankTransaction,
+    onClick: () -> Unit
+) {
     Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(
@@ -951,18 +1358,24 @@ private fun LoanTrackSectionCard(report: AnalysisReport) {
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = BsaFormatters.formatInr(loan.emiAmount),
                                     fontFamily = JetBrainsMono,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Text(
                                     text = "${loan.category} • ${loan.totalInstallments} paid",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
                             Text(
@@ -995,7 +1408,7 @@ private fun GroupedPartyCard(party: GroupedPartyRow) {
                 .fillMaxWidth()
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -1008,7 +1421,9 @@ private fun GroupedPartyCard(party: GroupedPartyRow) {
                     text = "${party.txnCount} txn(s) • Cr ${BsaFormatters.formatInrCompact(party.totalCredits)} | Dr ${BsaFormatters.formatInrCompact(party.totalDebits)}",
                     fontFamily = JetBrainsMono,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Text(
@@ -1016,6 +1431,8 @@ private fun GroupedPartyCard(party: GroupedPartyRow) {
                 fontFamily = JetBrainsMono,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
                 color = if (party.netFlow >= 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
             )
         }

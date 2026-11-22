@@ -10,12 +10,15 @@
     <string name="nav_settings">Settings</string>
 
     <string name="upload_zone_title">Select Bank Statement ePDFs</string>
-    <string name="upload_zone_subtitle">Tap to attach one or multiple sequential ePDF statements (password-protected auto-prompted)</string>
-    <string name="btn_add_pdfs">Attach ePDFs</string>
-    <string name="btn_load_sample">Load Sample ePDFs</string>
+    <string name="upload_zone_subtitle">Queue statements for one or multiple bank accounts simultaneously (password-protected auto-prompted)</string>
+    <string name="btn_add_pdfs">Attach Bank ePDFs</string>
+    <string name="btn_load_sample">Load Single-Account Reference</string>
+    <string name="btn_load_multi_account">Load Multi-Account Portfolio (2 Banks)</string>
     <string name="btn_run_analysis">Run Forensic Analysis</string>
-    <string name="btn_export_excel">Export 11-Tab Excel (.xlsx)</string>
+    <string name="btn_export_excel">Export 18-Tab Excel (.xlsx)</string>
     <string name="btn_share_excel">Share .xlsx</string>
+    <string name="btn_export_pdf">Export PDF Summary (.pdf)</string>
+    <string name="btn_share_pdf">Share PDF</string>
 
     <string name="section_applicant_facility">Applicant &amp; Facility Parameters</string>
     <string name="label_applicant_id">Applicant ID</string>
@@ -35,7 +38,7 @@
     <string name="password_dialog_cancel">Cancel</string>
 
     <string name="empty_report_title">No Active Underwriting Report</string>
-    <string name="empty_report_body">Attach one or more Indian bank ePDFs in the Analyze tab or load sample ePDFs to generate a forensic audit and 11-tab Excel workbook.</string>
+    <string name="empty_report_body">Attach one or more Indian bank ePDFs in the Analyze tab or load a YourView Reference Case to generate a 360° underwriter CAM audit and 18-tab Excel workbook.</string>
     <string name="empty_history_title">No Saved Cases Yet</string>
     <string name="empty_history_body">Completed bank statement analyses are stored strictly offline on this device for instant review and Excel re-export.</string>
 
@@ -47,8 +50,8 @@
     <string name="cd_back">Navigate back</string>
 
     <string name="excel_config_title">Excel Output Configuration</string>
-    <string name="excel_config_subtitle">Customize columns, date formats &amp; formulas for your 11-tab .xlsx</string>
+    <string name="excel_config_subtitle">Customize columns, date formats &amp; formulas for your 18-tab .xlsx</string>
     <string name="btn_customize_excel">Customize Columns &amp; Date Format</string>
-    <string name="btn_export_customized_excel">Export Customized 11-Tab Excel (.xlsx)</string>
+    <string name="btn_export_customized_excel">Export Customized 18-Tab Excel (.xlsx)</string>
     <string name="btn_reset_defaults">Reset</string>
 </resources>

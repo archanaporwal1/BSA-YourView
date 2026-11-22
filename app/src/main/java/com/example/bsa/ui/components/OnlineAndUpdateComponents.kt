@@ -240,7 +240,7 @@ fun InAppUpdateDialog(
     onRequestInstallPermission: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val canDismiss = updateState !is AppUpdateUiState.Downloading
+    val canDismiss = updateState !is AppUpdateUiState.Downloading && updateState !is AppUpdateUiState.Installing
 
     AlertDialog(
         onDismissRequest = { if (canDismiss) onDismiss() },
@@ -250,12 +250,13 @@ fun InAppUpdateDialog(
                 imageVector = when (updateState) {
                     is AppUpdateUiState.ReadyToInstall -> Icons.Filled.Verified
                     is AppUpdateUiState.Downloading -> Icons.Filled.Downloading
+                    is AppUpdateUiState.Installing -> Icons.Filled.InstallMobile
                     is AppUpdateUiState.Error -> Icons.Filled.ErrorOutline
                     else -> Icons.Filled.SystemUpdate
                 },
                 contentDescription = null,
                 tint = when (updateState) {
-                    is AppUpdateUiState.ReadyToInstall -> MaterialTheme.colorScheme.secondary
+                    is AppUpdateUiState.ReadyToInstall, is AppUpdateUiState.Installing -> MaterialTheme.colorScheme.secondary
                     is AppUpdateUiState.Error -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.primary
                 }
@@ -267,6 +268,7 @@ fun InAppUpdateDialog(
                     is AppUpdateUiState.UpdateAvailable -> "New BSA-YourView Update"
                     is AppUpdateUiState.Downloading -> "Downloading Update In-App"
                     is AppUpdateUiState.ReadyToInstall -> "Verified & Ready to Install"
+                    is AppUpdateUiState.Installing -> "Installing Update In-App"
                     is AppUpdateUiState.Error -> "Update Check Notice"
                     else -> "Software Update"
                 },
@@ -318,7 +320,7 @@ fun InAppUpdateDialog(
                             )
                         }
                         Text(
-                            text = "Downloads directly inside BSA-YourView with SHA-256 verification — no browser required.",
+                            text = "Downloads and installs directly inside BSA-YourView with SHA-256 verification, then automatically reopens the app.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.secondary
                         )
@@ -391,12 +393,39 @@ fun InAppUpdateDialog(
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f))
                             ) {
                                 Text(
-                                    text = "One-time Android security step: enable \"Allow from this source\" for BSA-YourView so future updates install directly inside the app.",
+                                    text = "One-time Android security step: enable \"Allow from this source\" for BSA-YourView so updates install in-app and reopen automatically.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                                     modifier = Modifier.padding(10.dp)
                                 )
                             }
+                        }
+                    }
+
+                    is AppUpdateUiState.Installing -> {
+                        Text(
+                            text = updateState.statusMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = MaterialTheme.colorScheme.secondary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                        ) {
+                            Text(
+                                text = "BSA-YourView v${updateState.release.versionName} will automatically reopen as soon as installation completes.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(10.dp)
+                            )
                         }
                     }
 
@@ -453,6 +482,11 @@ fun InAppUpdateDialog(
                             Spacer(Modifier.width(6.dp))
                             Text("Install Update Now")
                         }
+                    }
+                }
+                is AppUpdateUiState.Installing -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("Run in Background")
                     }
                 }
                 else -> {

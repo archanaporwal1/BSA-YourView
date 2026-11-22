@@ -174,6 +174,14 @@ class InAppUpdaterService(
                 }
             }
 
+            // Verify downloaded file is a genuine APK archive (ZIP magic bytes 'PK\x03\x04')
+            if (downloaded < 4096L || !hasApkZipMagicHeader(targetFile)) {
+                targetFile.delete()
+                throw IllegalStateException(
+                    "Downloaded file is not a valid Android APK package ($downloaded bytes)."
+                )
+            }
+
             // Enforce SHA-256 checksum integrity when manifest supplies a digest
             if (release.sha256.isNotBlank()) {
                 val actualSha256 = digest.digest().joinToString("") { "%02x".format(it) }
@@ -220,6 +228,71 @@ class InAppUpdaterService(
         }
     }
 
+    /**
+     * Installs the verified APK directly via Android's PackageInstaller.Session API inside the app.
+     * Upon completion, Android invokes `InAppInstallSessionReceiver` & `AppUpdateCompleteReceiver`
+     * (`ACTION_MY_PACKAGE_REPLACED`), which cleans cached APKs and automatically reopens BSA-YourView.
+     */
+    suspend fun installApkInAppSession(context: Context, apkFile: File): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(apkFile.exists() && apkFile.length() >= 4096L) {
+                "Verified update APK is missing or incomplete."
+            }
+            val installer = context.packageManager.packageInstaller
+            val params = android.content.pm.PackageInstaller.SessionParams(
+                android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
+            ).apply {
+                setAppPackageName(context.packageName)
+                setSize(apkFile.length())
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRequireUserAction(
+                        android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED
+                    )
+                }
+            }
+
+            val sessionId = installer.createSession(params)
+            val session = installer.openSession(sessionId)
+            try {
+                apkFile.inputStream().use { input ->
+                    session.openWrite("bsa_yourview_update.apk", 0L, apkFile.length()).use { output ->
+                        val buffer = ByteArray(32 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            output.write(buffer, 0, read)
+                        }
+                        session.fsync(output)
+                    }
+                }
+
+                val callbackIntent = Intent(context, InAppInstallSessionReceiver::class.java).apply {
+                    action = InAppInstallSessionReceiver.ACTION_INSTALL_STATUS
+                }
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
+                } else {
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                val pendingIntent = android.app.PendingIntent.getBroadcast(
+                    context,
+                    sessionId,
+                    callbackIntent,
+                    flags
+                )
+                session.commit(pendingIntent.intentSender)
+            } catch (e: Exception) {
+                runCatching { session.abandon() }
+                throw e
+            } finally {
+                runCatching { session.close() }
+            }
+        }
+    }
+
+    fun consumeJustUpdatedVersion(context: Context): String? =
+        InAppInstallSessionReceiver.consumeJustUpdatedVersion(context)
+
     internal fun parseManifestJson(rawJson: String): AppReleaseInfo? {
         return runCatching {
             val obj = JSONObject(rawJson)
@@ -259,10 +332,10 @@ class InAppUpdaterService(
             val apkUrl = asset.optString("browser_download_url", "").trim()
             if (apkUrl.isBlank()) return null
 
-            // Derive numeric build code from final semver segment if present (e.g. 1.0.5 -> 5)
-            val derivedCode = tag.split(".").lastOrNull()?.toIntOrNull() ?: 0
+            // GitHub Releases API tags do not carry Android versionCode; pass 0 so isNewerVersion
+            // compares full semantic versionName accurately (e.g., 1.1.0 > 1.0.2, 2.0.0 > 1.9.9).
             AppReleaseInfo(
-                versionCode = derivedCode,
+                versionCode = 0,
                 versionName = tag.ifBlank { "latest" },
                 apkFileName = asset.optString("name", "BSA-YourView.apk"),
                 apkUrl = apkUrl,
@@ -272,6 +345,20 @@ class InAppUpdaterService(
                 publishedAtUtc = publishedAt
             )
         }.getOrNull()
+    }
+
+    private fun hasApkZipMagicHeader(file: File): Boolean {
+        return runCatching {
+            file.inputStream().use { input ->
+                val header = ByteArray(4)
+                val read = input.read(header)
+                read == 4 &&
+                    header[0] == 0x50.toByte() && // 'P'
+                    header[1] == 0x4B.toByte() && // 'K'
+                    header[2] == 0x03.toByte() &&
+                    header[3] == 0x04.toByte()
+            }
+        }.getOrDefault(false)
     }
 
     internal fun isNewerVersion(

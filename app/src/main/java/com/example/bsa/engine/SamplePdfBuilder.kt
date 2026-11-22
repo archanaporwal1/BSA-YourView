@@ -84,15 +84,64 @@ object SamplePdfBuilder {
                 displayName = file1.name,
                 uriString = Uri.fromFile(file1).toString(),
                 fileSizeBytes = file1.length(),
-                isSample = true
+                isSample = true,
+                accountGroupLabel = "Account 1"
             ),
             StagedPdfFile(
                 displayName = file2.name,
                 uriString = Uri.fromFile(file2).toString(),
                 fileSizeBytes = file2.length(),
-                isSample = true
+                isSample = true,
+                accountGroupLabel = "Account 1"
             )
         )
+    }
+
+    /**
+     * Generates a 2-Bank, 3-File Multi-Account Reference Portfolio (Account 1: ICICI OD,
+     * Account 2: HDFC Bank Current Account) including a matching inter-bank contra transfer
+     * (Rs.1,50,000 on 24-Jun-2026) to showcase Consolidated Portfolio Risk & contra deduction.
+     */
+    fun generateMultiAccountPortfolioStatements(context: Context): List<StagedPdfFile> {
+        val primaryFiles = generateSequentialSampleStatements(context)
+        val sampleDir = File(context.cacheDir, "samples").apply { mkdirs() }
+        val hdfcFile = File(sampleDir, "hdfc_current_apr_jun_2026.pdf")
+
+        val hdfcRows = listOf(
+            Row("03-04-2026", "NEFT CR/SBIN0004421/DECCAN INFRA SUPPLY RECEIPT", 0.0, 380000.0, 620000.0, "Cr"),
+            Row("07-04-2026", "NEFT DR/ICIC0000121/METRO HARDWARE DISTRIBUTORS", 145000.0, 0.0, 475000.0, "Cr"),
+            Row("14-04-2026", "UPI/CR/61044412/RETAIL POS COLLECTION SETTLEMENT", 0.0, 195000.0, 670000.0, "Cr"),
+            Row("21-04-2026", "CHQ RTN INWARD 401122 INSUFFICIENT FUNDS", 32000.0, 0.0, 638000.0, "Cr"),
+            Row("04-05-2026", "RTGS CR/UTIB0000210/HYDERABAD BUILDCON PVT LTD", 0.0, 420000.0, 1058000.0, "Cr"),
+            Row("11-05-2026", "NEFT DR/HDFC0001204/OFFICE LEASE & STAFF PAYROLL", 165000.0, 0.0, 893000.0, "Cr"),
+            Row("19-05-2026", "ACH DR/AXIS BANK COMMERCIAL VEHICLE EMI 77211", 34500.0, 0.0, 858500.0, "Cr"),
+            Row("05-06-2026", "NEFT CR/KKBK0000901/DECCAN INFRA SUPPLY RECEIPT", 0.0, 340000.0, 1198500.0, "Cr"),
+            Row("14-06-2026", "ACH DR/AXIS BANK COMMERCIAL VEHICLE EMI 77211", 34500.0, 0.0, 1164000.0, "Cr"),
+            Row("24-06-2026", "IMPS/DR/61751011/ICICI OD A/C TRANSFER SELF", 150000.0, 0.0, 1014000.0, "Cr"),
+            Row("29-06-2026", "UPI/CR/61802210/RETAIL POS COLLECTION SETTLEMENT", 0.0, 210000.0, 1224000.0, "Cr")
+        )
+
+        writeBankStatementPdf(
+            outputFile = hdfcFile,
+            periodLabel = "01-Apr-2026 to 30-Jun-2026",
+            rows = hdfcRows,
+            bankHeader = "HDFC BANK LIMITED - BUSINESS CURRENT ACCOUNT STATEMENT",
+            accountNumber = "50200041982214",
+            ifsc = "HDFC0000421",
+            branch = "Banjara Hills, Hyderabad",
+            facility = "Current Account",
+            producerName = "HDFC Core Banking Statement Engine 5.1",
+            creatorName = "HDFC Bank Statement Generator"
+        )
+
+        val hdfcStaged = StagedPdfFile(
+            displayName = hdfcFile.name,
+            uriString = Uri.fromFile(hdfcFile).toString(),
+            fileSizeBytes = hdfcFile.length(),
+            isSample = true,
+            accountGroupLabel = "Account 2"
+        )
+        return primaryFiles + hdfcStaged
     }
 
     private data class Row(
@@ -107,12 +156,19 @@ object SamplePdfBuilder {
     private fun writeBankStatementPdf(
         outputFile: File,
         periodLabel: String,
-        rows: List<Row>
+        rows: List<Row>,
+        bankHeader: String = "ICICI BANK LIMITED - CORPORATE & BUSINESS OVERDRAFT STATEMENT",
+        accountNumber: String = "000805019482",
+        ifsc: String = "ICIC0000008",
+        branch: String = "Jubilee Hills, Hyderabad",
+        facility: String = "Overdraft (OD)",
+        producerName: String = "ICICI Core Banking eStatement Engine 4.2",
+        creatorName: String = "ICICI Bank Statement Generator"
     ) {
         val doc = PDDocument()
         doc.documentInformation.apply {
-            producer = "ICICI Core Banking eStatement Engine 4.2"
-            creator = "ICICI Bank Statement Generator"
+            producer = producerName
+            creator = creatorName
             title = "Account Statement"
         }
 
@@ -139,11 +195,11 @@ object SamplePdfBuilder {
                 cs.endText()
             }
 
-            drawLine("ICICI BANK LIMITED - CORPORATE & BUSINESS OVERDRAFT STATEMENT", bold = true, size = 11f)
+            drawLine(bankHeader, bold = true, size = 11f)
             drawLine("Account Holder Name: JARUPULA RAJENDER", bold = true, size = 9f)
-            drawLine("Account Number: 000805019482   IFSC: ICIC0000008   Branch: Jubilee Hills, Hyderabad", size = 8.5f)
+            drawLine("Account Number: $accountNumber   IFSC: $ifsc   Branch: $branch", size = 8.5f)
             drawLine("Address: Plot 42, Road No 12, Banjara Hills, Hyderabad, Telangana 500034", size = 8.5f)
-            drawLine("Statement Period: $periodLabel   Currency: INR   Facility: Overdraft (OD)", size = 8.5f)
+            drawLine("Statement Period: $periodLabel   Currency: INR   Facility: $facility", size = 8.5f)
             y -= 6f
 
             // Explicit tabular header column coordinates for PDFBox coordinate-aligned extraction

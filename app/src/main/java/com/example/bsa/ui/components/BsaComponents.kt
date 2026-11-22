@@ -117,13 +117,13 @@ fun BrandTopHeader(
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     if (hasUpdateAvailable) {
                         IconButton(
                             onClick = onOpenUpdate,
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(48.dp)
                                 .testTag("header_update_badge")
                         ) {
                             Surface(
@@ -181,7 +181,7 @@ fun BrandTopHeader(
                     IconButton(
                         onClick = onToggleTheme,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .testTag("theme_mode_toggle")
                     ) {
                         Surface(
@@ -680,10 +680,14 @@ fun KpiMetricTile(
     value: String,
     subtitle: String,
     accentColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onInfoClick: (() -> Unit)? = null
 ) {
     Surface(
-        modifier = modifier.widthIn(min = 152.dp),
+        modifier = modifier
+            .widthIn(min = 152.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .let { base -> if (onInfoClick != null) base.clickable(onClick = onInfoClick) else base },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
@@ -707,8 +711,17 @@ fun KpiMetricTile(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                if (onInfoClick != null) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = "Explain $label",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
             Text(
                 text = value,
@@ -738,7 +751,8 @@ fun KpiMetricTile(
 fun RiskScoreSummaryCard(
     indicators: List<FraudIndicatorResult>,
     onInspectTriggers: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onExplainScore: (() -> Unit)? = null
 ) {
     val summary = remember(indicators) { FraudScreeningService.computeRiskSummary(indicators) }
     val cleanCount = remember(indicators) { indicators.count { it.status == IndicatorStatus.CLEAN } }
@@ -875,6 +889,13 @@ fun RiskScoreSummaryCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        if (onExplainScore != null) {
+                            InfoTooltipIconButton(
+                                contentDescription = "Explain Risk Score weighting",
+                                onClick = onExplainScore,
+                                modifier = Modifier.testTag("risk_score_tooltip_button")
+                            )
+                        }
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = containerTint
@@ -959,7 +980,7 @@ fun RiskScoreSummaryCard(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = "${summary.flaggedCount} of 10 triggers flagged (1–5 Fraud, 6–10 Behavioural)",
@@ -976,7 +997,12 @@ fun RiskScoreSummaryCard(
                             .minimumInteractiveComponentSize()
                             .testTag("inspect_fraud_triggers_button")
                     ) {
-                        Text("Inspect 10 Triggers", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            text = "Inspect 10",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                         Spacer(Modifier.width(4.dp))
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -1052,7 +1078,7 @@ fun ExcelExportProgressPanel(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = stageMessage.ifBlank { "Generating 11-tab Excel workbook..." },
+                            text = stageMessage.ifBlank { "Generating 18-tab Excel workbook..." },
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,

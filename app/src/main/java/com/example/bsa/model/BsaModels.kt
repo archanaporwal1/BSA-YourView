@@ -5,10 +5,10 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class ProductType(val displayName: String) {
-    AUTO_LOAN("AutoLoan"),
-    BUSINESS_LOAN("BusinessLoan"),
-    WORKING_CAPITAL("WorkingCapital"),
-    HOME_LOAN("HomeLoan")
+    AUTO_LOAN("Auto Loan"),
+    BUSINESS_LOAN("Business Loan"),
+    WORKING_CAPITAL("Working Capital"),
+    HOME_LOAN("Home Loan")
 }
 
 enum class FacilityType(val code: String, val label: String) {
@@ -134,6 +134,15 @@ data class AppSettings(
     val excelExportConfig: ExcelExportConfig = ExcelExportConfig()
 )
 
+enum class QueueFileStatus(val label: String) {
+    PROBING("Checking…"),
+    READY("Ready"),
+    LOCKED("Password Locked"),
+    PARSING("Parsing…"),
+    COMPLETED("Completed"),
+    FAILED("Failed")
+}
+
 data class StagedPdfFile(
     val id: String = UUID.randomUUID().toString(),
     val displayName: String,
@@ -143,7 +152,12 @@ data class StagedPdfFile(
     val passwordError: String? = null,
     val isPasswordProtected: Boolean = false,
     val isUnlocked: Boolean = true,
-    val isSample: Boolean = false
+    val isSample: Boolean = false,
+    val accountGroupLabel: String = "Account 1",
+    val queueStatus: QueueFileStatus = QueueFileStatus.READY,
+    val detectedBankHint: String = "",
+    val extractedTxnCount: Int = 0,
+    val processingNote: String? = null
 )
 
 data class ApplicantConfig(
@@ -174,7 +188,8 @@ data class FileForensicAudit(
     val sha256Short: String = "-",
     val creationDate: String = "-",
     val modDate: String = "-",
-    val imageObjectCount: Int = 0
+    val imageObjectCount: Int = 0,
+    val accountGroupLabel: String = ""
 )
 
 data class AccountMetadata(
@@ -238,7 +253,13 @@ data class MonthlyMetric(
     val avgOdUtilizationPct: Double,
     val highestOdUtilizationAmt: Double,
     val highestOdUtilizationPct: Double,
-    val highestOdUtilizationDate: String
+    val highestOdUtilizationDate: String,
+    val internalCredits: Double = selfTransferIn,
+    val internalCreditCount: Int = 0,
+    val chequeBounceAmount: Double = 0.0,
+    val chequeBounceCount: Int = 0,
+    val emiReturnAmount: Double = 0.0,
+    val emiReturnCount: Int = 0
 )
 
 data class LoanTrackRow(
@@ -311,6 +332,24 @@ data class AnalysisReport(
 
     val totalEmiOutflow: Double
         get() = monthlyMetrics.sumOf { it.emiLoanOutflow }
+
+    val totalInternalCredits: Double
+        get() = monthlyMetrics.sumOf { it.internalCredits }
+
+    val totalInternalCreditCount: Int
+        get() = monthlyMetrics.sumOf { it.internalCreditCount }
+
+    val totalChequeBounceAmount: Double
+        get() = monthlyMetrics.sumOf { it.chequeBounceAmount }
+
+    val totalChequeBounceCount: Int
+        get() = monthlyMetrics.sumOf { it.chequeBounceCount }
+
+    val totalEmiReturnAmount: Double
+        get() = monthlyMetrics.sumOf { it.emiReturnAmount }
+
+    val totalEmiReturnCount: Int
+        get() = monthlyMetrics.sumOf { it.emiReturnCount }
 }
 
 /**
@@ -363,6 +402,7 @@ object AnalysisReportSerializer {
                     put("creationDate", a.creationDate)
                     put("modDate", a.modDate)
                     put("imageObjectCount", a.imageObjectCount)
+                    put("accountGroupLabel", a.accountGroupLabel)
                 })
             }
         })
@@ -411,6 +451,12 @@ object AnalysisReportSerializer {
                     put("highestOdUtilizationAmt", m.highestOdUtilizationAmt)
                     put("highestOdUtilizationPct", m.highestOdUtilizationPct)
                     put("highestOdUtilizationDate", m.highestOdUtilizationDate)
+                    put("internalCredits", m.internalCredits)
+                    put("internalCreditCount", m.internalCreditCount)
+                    put("chequeBounceAmount", m.chequeBounceAmount)
+                    put("chequeBounceCount", m.chequeBounceCount)
+                    put("emiReturnAmount", m.emiReturnAmount)
+                    put("emiReturnCount", m.emiReturnCount)
                 })
             }
         })
@@ -541,7 +587,8 @@ object AnalysisReportSerializer {
                 sha256Short = a.optString("sha256Short", "-"),
                 creationDate = a.optString("creationDate", "-"),
                 modDate = a.optString("modDate", "-"),
-                imageObjectCount = a.optInt("imageObjectCount", 0)
+                imageObjectCount = a.optInt("imageObjectCount", 0),
+                accountGroupLabel = a.optString("accountGroupLabel", "")
             )
         }
 
@@ -588,7 +635,13 @@ object AnalysisReportSerializer {
                 avgOdUtilizationPct = m.optDouble("avgOdUtilizationPct"),
                 highestOdUtilizationAmt = m.optDouble("highestOdUtilizationAmt"),
                 highestOdUtilizationPct = m.optDouble("highestOdUtilizationPct"),
-                highestOdUtilizationDate = m.optString("highestOdUtilizationDate", "-")
+                highestOdUtilizationDate = m.optString("highestOdUtilizationDate", "-"),
+                internalCredits = if (m.has("internalCredits")) m.optDouble("internalCredits") else m.optDouble("selfTransferIn"),
+                internalCreditCount = m.optInt("internalCreditCount", 0),
+                chequeBounceAmount = m.optDouble("chequeBounceAmount", 0.0),
+                chequeBounceCount = m.optInt("chequeBounceCount", 0),
+                emiReturnAmount = m.optDouble("emiReturnAmount", 0.0),
+                emiReturnCount = m.optInt("emiReturnCount", 0)
             )
         }
 
@@ -702,8 +755,8 @@ object AnalysisReportSerializer {
             eodMatrixMonths = eodMatrixMonths,
             eodMatrixByDay = eodMatrixByDay,
             loanTrack = loanTrack,
-            topCredits = transactions.filter { it.amount > 0 }.sortedByDescending { it.amount }.take(30),
-            topDebits = transactions.filter { it.amount < 0 }.sortedBy { it.amount }.take(30),
+            topCredits = transactions.filter { it.amount > 0 }.sortedByDescending { it.amount }.take(50),
+            topDebits = transactions.filter { it.amount < 0 }.sortedBy { it.amount }.take(50),
             selfTransfers = transactions.filter { it.isSelfTransfer },
             groupedParties = groupedParties,
             fraudIndicators = fraudIndicators,

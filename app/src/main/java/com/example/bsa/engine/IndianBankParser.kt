@@ -175,7 +175,23 @@ object IndianBankParser {
             "PUNJAB NATIONAL BANK" to "Punjab National Bank",
             "INDUSIND BANK" to "IndusInd Bank",
             "IDFC FIRST" to "IDFC FIRST Bank",
-            "YES BANK" to "Yes Bank"
+            "YES BANK" to "Yes Bank",
+            "FEDERAL BANK" to "Federal Bank",
+            "INDIAN BANK" to "Indian Bank",
+            "BANK OF INDIA" to "Bank of India",
+            "CENTRAL BANK OF INDIA" to "Central Bank of India",
+            "INDIAN OVERSEAS BANK" to "Indian Overseas Bank",
+            "UCO BANK" to "UCO Bank",
+            "BANK OF MAHARASHTRA" to "Bank of Maharashtra",
+            "PUNJAB AND SIND BANK" to "Punjab & Sind Bank",
+            "IDBI BANK" to "IDBI Bank",
+            "RBL BANK" to "RBL Bank",
+            "BANDHAN BANK" to "Bandhan Bank",
+            "AU SMALL FINANCE" to "AU Small Finance Bank",
+            "SOUTH INDIAN BANK" to "South Indian Bank",
+            "KARUR VYSYA BANK" to "Karur Vysya Bank",
+            "CITY UNION BANK" to "City Union Bank",
+            "STANDARD CHARTERED" to "Standard Chartered Bank"
         )
         // 1. Prefer earliest explicit bank name appearance in the header
         val earliestName = bankNameTokens
@@ -199,7 +215,23 @@ object IndianBankParser {
             "PUNB0" to "Punjab National Bank",
             "INDB0" to "IndusInd Bank",
             "IDFB0" to "IDFC FIRST Bank",
-            "YESB0" to "Yes Bank"
+            "YESB0" to "Yes Bank",
+            "FDRL0" to "Federal Bank",
+            "IDIB0" to "Indian Bank",
+            "BKID0" to "Bank of India",
+            "CBIN0" to "Central Bank of India",
+            "IOBA0" to "Indian Overseas Bank",
+            "UCBA0" to "UCO Bank",
+            "MAHB0" to "Bank of Maharashtra",
+            "PSIB0" to "Punjab & Sind Bank",
+            "IBKL0" to "IDBI Bank",
+            "RATN0" to "RBL Bank",
+            "BDBL0" to "Bandhan Bank",
+            "AUBL0" to "AU Small Finance Bank",
+            "SIBL0" to "South Indian Bank",
+            "KVBL0" to "Karur Vysya Bank",
+            "CIUB0" to "City Union Bank",
+            "SCBL0" to "Standard Chartered Bank"
         )
         val earliestIfsc = ifscTokens
             .mapNotNull { (token, name) ->
@@ -675,18 +707,26 @@ object IndianBankParser {
             statementPeriod = "-"
         )
 
+        val accountKeyByFile = parsedFiles.associate { pf ->
+            val normAcc = pf.metadata.accountNumber.replace(Regex("""[^A-Za-z0-9]"""), "").uppercase(Locale.ROOT)
+            val normBank = pf.metadata.bankName.trim().uppercase(Locale.ROOT)
+            pf.fileName to "$normBank|$normAcc"
+        }
+
         val seenKeys = LinkedHashSet<String>()
         val deduped = mutableListOf<RawParsedTransaction>()
         val orderedFiles = parsedFiles.sortedBy { it.transactions.firstOrNull()?.dateIso ?: "9999-99-99" }
 
         for (file in orderedFiles) {
+            val accKey = accountKeyByFile[file.fileName] ?: file.fileName
             for (txn in file.transactions) {
                 val normalizedDesc = txn.description.uppercase(Locale.ROOT)
                     .replace(Regex("""[^A-Z0-9]"""), "")
                     .take(40)
                 val key = String.format(
                     Locale.ROOT,
-                    "%s|%.2f|%.2f|%s",
+                    "%s|%s|%.2f|%.2f|%s",
+                    accKey,
                     txn.dateIso,
                     txn.signedAmount,
                     txn.normalizedBalance,
@@ -702,9 +742,12 @@ object IndianBankParser {
             .sortedWith(compareBy<IndexedValue<RawParsedTransaction>> { it.value.dateIso }.thenBy { it.index })
             .map { it.value }
 
+        // Check running-balance continuity independently per distinct bank account
         val verified = mutableListOf<Pair<RawParsedTransaction, Boolean>>()
-        var prevBal: Double? = null
+        val prevBalByAccount = mutableMapOf<String, Double>()
         for (txn in sorted) {
+            val accKey = accountKeyByFile[txn.sourceFile] ?: "DEFAULT"
+            val prevBal = prevBalByAccount[accKey]
             val mismatch = if (prevBal != null) {
                 val expected = prevBal + txn.signedAmount
                 abs(expected - txn.normalizedBalance) > 0.05
@@ -712,7 +755,7 @@ object IndianBankParser {
                 false
             }
             verified.add(txn to mismatch)
-            prevBal = txn.normalizedBalance
+            prevBalByAccount[accKey] = txn.normalizedBalance
         }
 
         val consolidatedPeriod = if (sorted.isNotEmpty()) {
@@ -721,7 +764,22 @@ object IndianBankParser {
             primaryMeta.statementPeriod
         }
 
-        return primaryMeta.copy(statementPeriod = consolidatedPeriod) to verified
+        val distinctAccounts = parsedFiles
+            .map { pf -> pf.metadata.bankName.trim() to pf.metadata.accountNumber.trim() }
+            .distinctBy { (b, a) -> "${b.uppercase(Locale.ROOT)}|${a.replace(Regex("""[^A-Za-z0-9]"""), "")}" }
+
+        val consolidatedMeta = if (distinctAccounts.size >= 2) {
+            val bankNames = distinctAccounts.map { it.first }.distinct().joinToString(" + ")
+            primaryMeta.copy(
+                bankName = "$bankNames (${distinctAccounts.size} Accounts)",
+                accountNumber = "${primaryMeta.accountNumber} (+${distinctAccounts.size - 1} more)",
+                statementPeriod = consolidatedPeriod
+            )
+        } else {
+            primaryMeta.copy(statementPeriod = consolidatedPeriod)
+        }
+
+        return consolidatedMeta to verified
     }
 
     private fun isHeaderLine(line: String): Boolean {
